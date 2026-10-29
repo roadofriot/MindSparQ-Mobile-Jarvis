@@ -2,15 +2,15 @@ Categories:
   - Development
   - System
 License: MIT
-AuthorName: TechJarves
-SourceCode: https://github.com/techjarves/Mobile-Harness
-IssueTracker: https://github.com/techjarves/Mobile-Harness/issues
-Changelog: https://github.com/techjarves/Mobile-Harness/releases
+AuthorName: MindSparQ
+SourceCode: https://github.com/mindsparq/MindSparQ-Mobile-Jarvis
+IssueTracker: https://github.com/mindsparq/MindSparQ-Mobile-Jarvis/issues
+Changelog: https://github.com/mindsparq/MindSparQ-Mobile-Jarvis/releases
 
-AutoName: Mobile Harness
+AutoName: MindSparQ Harness
 
 RepoType: git
-Repo: https://github.com/techjarves/Mobile-Harness.git
+Repo: https://github.com/mindsparq/MindSparQ-Mobile-Jarvis.git
 
 AntiFeatures:
   - NonFreeNet

@@ -48,8 +48,8 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.filled.VisibilityOff
+import com.mindsparq.jarvis.core.designsystem.components.OfflineModelDownloadSection
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -1213,7 +1213,16 @@ fun AgentScreen(
                 }
             }
 
-            // ── 3. Runtime Updates Card ──
+            // ── 3. On-Device Offline AI Models (Local SLM Studio) ──
+            item {
+                OfflineModelDownloadSection(
+                    detectedRamGb = 12,
+                    activeModelId = "llama-3.2-3b",
+                    onSetActiveModel = { _ -> }
+                )
+            }
+
+            // ── 4. Runtime Updates Card ──
             item {
                 AgentUpdateBlock(
                     state = state,

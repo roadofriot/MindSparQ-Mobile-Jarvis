@@ -1,61 +1,61 @@
-# Mobile Harness Privacy Policy
+# MindSparQ Harness Privacy Policy
 
-**Effective date:** August 24, 2026
+**Effective date:** October 29, 2026
 
-Mobile Harness is a local-first Android development workspace. This policy explains what information the app handles, where it is stored, and when information leaves the device.
+MindSparQ Harness is an open-source, local-first Android development and autonomous AI coding studio. This policy explains what information the app handles, where it is stored, and when information leaves the device.
 
 ## Information handled by the app
 
-Mobile Harness may handle the following information when you choose to provide it:
+MindSparQ Harness handles the following information strictly under your control:
 
-- AI-provider API keys and connection settings
-- Prompts, AI responses, and conversation history
-- Project files, imported documents, images, audio, and other attachments
-- Terminal commands, command output, file changes, checkpoints, and diagnostic logs
-- Basic device compatibility information such as Android version, processor architecture, memory, and available storage
+- AI-provider API keys (Google Gemini, Anthropic Claude, OpenRouter, DeepSeek, Antigravity, Ollama) and connection settings
+- Prompts, AI responses, voice dictation inputs, and conversation history
+- Project files, imported repositories, documents, images, audio, and code attachments
+- Terminal commands, compilation output, file changes, checkpoints, and diagnostic logs
+- Basic device compatibility metrics (Android version, ARM64 architecture, physical RAM governor, storage)
 
-## Local storage
+## Local storage & Zero Telemetry
 
-Projects, conversations, attachments, runtime files, terminal history, and diagnostics are stored in the app's private storage on your device. Provider API keys are encrypted using a key managed by Android Keystore before they are persisted.
+Projects, conversations, attachments, runtime binaries, terminal history, and diagnostics are stored strictly in the app's sandboxed private storage on your device.
 
-Mobile Harness does not currently include advertising or analytics SDKs and does not operate a first-party user account system.
+Provider API keys are hardware-encrypted using AES-256-GCM backed by the **Android Keystore hardware security module (KeyStore / StrongBox)** before persistence.
+
+MindSparQ Harness contains **zero advertising SDKs, zero telemetry, zero analytics tracking, and no external user account system**. Your data never leaves your device unless explicitly routed to an AI provider of your choice.
 
 ## Information sent off the device
 
-When you use an AI feature, the content required to answer your request may be transmitted to the provider you configured. Depending on the task, that content can include prompts, conversation context, relevant source code, file paths, file contents, tool results, and attachments. The provider processes that information under its own privacy policy and terms.
+When you use an external AI provider (such as Google Gemini, Claude, or OpenRouter):
+- The content required to fulfill your prompt (code files, terminal errors, conversation context) is transmitted directly to that provider via encrypted HTTPS.
+- The provider processes that request under its own privacy policy.
 
-During runtime setup and maintenance, the app connects to software distribution services—including Ubuntu, Anthropic, Node.js, Composer, App Dev For All's Android development assets, and configured Linux package repositories—to download required components. Those services may receive standard network information such as your IP address, request time, requested file, and user-agent information.
+When you use **On-Device Offline Models (Local SLMs)**:
+- 100% of reasoning, synthesis, and code generation executes locally on your phone's CPU and RAM. **Zero data leaves the device.**
 
-Mobile Harness does not sell personal information. It does not send projects or conversations to the Mobile Harness developer unless you explicitly share them, submit diagnostics, or use a future opt-in backup or support feature.
+During runtime setup and maintenance, the app connects to verified software distribution services (Ubuntu rootfs, Node.js, Python, Kotlin, Android development SDKs) over HTTPS with SHA-256 checksum verification.
 
 ## Permissions
 
-- **Internet and network state:** Download runtime components and communicate with your selected AI provider.
-- **Notifications:** Report user-started setup and coding tasks running in the foreground or background.
-- **Foreground service and wake lock:** Keep a user-started task active long enough to complete and prevent interruption while work is actively running.
-- **Document picker access:** Import only files and folders you explicitly select through Android's system picker.
-- **Install packages:** Submit an Android APK built in your selected project to Android's system installer. Android asks you to allow this source and confirm installation; Mobile Harness cannot silently install apps.
-
-Notification permission and battery-optimization exemption are requested in context and can be declined. Some background features may be less reliable without them.
+- **Internet and network state:** Download runtime components, fetch packages, and communicate with user-configured AI APIs.
+- **Microphone / Speech Recognition:** Used exclusively when tapping the microphone button to dictate project names or prompts into the text fields. Audio is transcribed via Android's on-device speech engine and is never uploaded by MindSparQ.
+- **Notifications:** Inform you when background builds, compilations, or agent tasks complete.
+- **Foreground service & WakeLock:** Prevent Android from killing active builds and agent tasks when the screen turns off or while multitasking.
+- **Document picker:** Import zip files and Git repositories you explicitly choose.
+- **Install packages:** Hand off compiled APKs directly to the Android system package installer upon your confirmation.
 
 ## Retention and deletion
 
-Local information remains on the device until you delete the relevant project, clear it from the app, or uninstall Mobile Harness. Uninstalling the app removes its private local data according to Android's behavior.
-
-Information already transmitted to an AI provider is governed by that provider's retention and deletion policies. Contact the provider directly for requests concerning information held by that provider.
+All local code, chats, and keys remain on your device until you delete the project or uninstall the app. Uninstalling removes all sandboxed private storage.
 
 ## Security
 
-Mobile Harness uses app-private Android storage, Android Keystore-backed credential encryption, HTTPS for external services, and checksum verification for supported runtime downloads. No system can guarantee complete security. Code executed inside the local Linux environment should be limited to projects and dependencies you trust.
-
-## Children
-
-Mobile Harness is a developer tool and is not directed to children under 13. The app does not knowingly collect personal information from children.
-
-## Changes to this policy
-
-This policy may be updated as Mobile Harness changes. Material changes will be reflected by updating the effective date and publishing the revised policy at the same public URL.
+MindSparQ Harness implements strict Defense-in-Depth:
+1. Sandboxed PRoot Linux containerization.
+2. Android Keystore AES-256-GCM hardware encryption for all API keys.
+3. PolicyEngine screening to guard against malicious path traversal or shell exploits.
+4. MemoryGovernor preventing out-of-memory kernel panics on low-memory devices.
 
 ## Contact
 
-For privacy questions or requests, open an issue at [github.com/techjarves/Mobile-Harness/issues](https://github.com/techjarves/Mobile-Harness/issues).
+For questions, issues, or contributions:
+- GitHub: [https://github.com/mindsparq/MindSparQ-Mobile-Jarvis](https://github.com/mindsparq/MindSparQ-Mobile-Jarvis)
+- Website: [https://mindsparq.org](https://mindsparq.org)

@@ -6,11 +6,17 @@ enum class AppLanguage(
     val nativeName: String,
 ) {
     SYSTEM("system", "System Default", "Default"),
+    NEPALI("ne", "Nepali", "नेपाली"),
     ENGLISH("en", "English", "English"),
+    HINDI("hi", "Hindi", "हिन्दी"),
     SPANISH("es", "Spanish", "Español"),
     CHINESE("zh", "Chinese (Simplified)", "简体中文"),
+    JAPANESE("ja", "Japanese", "日本語"),
+    KOREAN("ko", "Korean", "한국어"),
+    FRENCH("fr", "French", "Français"),
+    GERMAN("de", "German", "Deutsch"),
+    PORTUGUESE("pt", "Portuguese", "Português"),
     ARABIC("ar", "Arabic", "العربية"),
-    HINDI("hi", "Hindi", "हिन्दी"),
     RUSSIAN("ru", "Russian", "Русский");
 
     companion object {

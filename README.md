@@ -1,8 +1,8 @@
 <div align="center">
 
-  <img src="assets/readme/logo.svg" alt="Mobile Harness Logo" width="104" height="104" style="border-radius: 24px;" />
+  <img src="assets/readme/logo.svg" alt="MindSparQ Harness Logo" width="104" height="104" style="border-radius: 24px;" />
 
-  # Mobile Harness
+  # MindSparQ Harness
 
   ### *The complete autonomous AI development workspace for Android.*
 
@@ -10,16 +10,16 @@
 
   <br />
 
-  [![Release v1.0.7](https://img.shields.io/badge/Release-v1.0.7-F28C52?style=flat-square&logo=github&logoColor=white)](https://github.com/techjarves/Mobile-Harness/releases/tag/v1.0.7)
+  [![Release v1.0.7](https://img.shields.io/badge/Release-v1.0.7-F28C52?style=flat-square&logo=github&logoColor=white)](https://github.com/mindsparq/MindSparQ-Mobile-Jarvis/releases/tag/v1.0.7)
   [![Android 9+](https://img.shields.io/badge/Android-9%2B-3DDC84?style=flat-square&logo=android&logoColor=white)](#system-requirements)
   [![ARM64](https://img.shields.io/badge/CPU-ARM64-5B8DEF?style=flat-square)](#system-requirements)
   [![MIT License](https://img.shields.io/badge/License-MIT-8B7CF6?style=flat-square&logo=opensourceinitiative&logoColor=white)](LICENSE)
-  [![Watch demo](https://img.shields.io/badge/Watch-Demo-FF0000?style=flat-square&logo=youtube&logoColor=white)](https://www.youtube.com/techjarves)
+  [![Watch demo](https://img.shields.io/badge/Watch-Demo-FF0000?style=flat-square&logo=youtube&logoColor=white)](https://mindsparq.org)
 
   <br />
 
-  [**Download Online APK**](https://github.com/techjarves/Mobile-Harness/releases/download/v1.0.7/mobile-harness-online-v1.0.7.apk) &nbsp;•&nbsp;
-  [**Download Offline APK**](https://github.com/techjarves/Mobile-Harness/releases/download/v1.0.7/mobile-harness-offline-v1.0.7.apk) &nbsp;•&nbsp;
+  [**Download Online APK**](https://github.com/mindsparq/MindSparQ-Mobile-Jarvis/releases/download/v1.0.7/mindsparq-harness-online-v1.0.7.apk) &nbsp;•&nbsp;
+  [**Download Offline APK**](https://github.com/mindsparq/MindSparQ-Mobile-Jarvis/releases/download/v1.0.7/mindsparq-harness-offline-v1.0.7.apk) &nbsp;•&nbsp;
   [**Watch Walkthrough (3 min)**](https://youtu.be/QzAau52Z7yQ) &nbsp;•&nbsp;
   [**Quickstart Guide**](#quickstart) &nbsp;•&nbsp;
   [**Architecture**](#architecture) &nbsp;•&nbsp;
@@ -33,7 +33,7 @@
 
 <p align="center">
   <a href="https://youtu.be/x5T56timmQw" target="_blank" rel="noopener noreferrer">
-    <img src="https://img.youtube.com/vi/x5T56timmQw/maxresdefault.jpg" alt="Mobile Harness Walkthrough and Live Product Demo" width="920" />
+    <img src="https://img.youtube.com/vi/x5T56timmQw/maxresdefault.jpg" alt="MindSparQ Harness Walkthrough and Live Product Demo" width="920" />
   </a>
   <br />
   <sub>Watch the product walkthrough and demo &nbsp;|&nbsp; <i>Setting up Ubuntu, connecting Claude Code, and building an app on Android</i></sub>
@@ -45,15 +45,15 @@
 
 > [!IMPORTANT]
 > **Environment Security Notice**  
-> Mobile Harness runs on **ARM64 Android devices** using a private userspace PRoot layer. While isolated from other apps via standard Android sandbox permissions, PRoot is not a virtualization boundary or hardened security jail. Only execute projects and dependencies you own or trust.
+> MindSparQ Harness runs on **ARM64 Android devices** using a private userspace PRoot layer. While isolated from other apps via standard Android sandbox permissions, PRoot is not a virtualization boundary or hardened security jail. Only execute projects and dependencies you own or trust.
 
 <br />
 
-## Download Mobile Harness
+## Download MindSparQ Harness
 
 <div align="center">
   <h3>Choose the edition that fits your setup</h3>
-  <p>Both editions contain the complete Mobile Harness app and support secure in-app updates beginning with v1.0.3.</p>
+  <p>Both editions contain the complete MindSparQ Harness app and support secure in-app updates beginning with v1.0.3.</p>
 </div>
 
 <table>
@@ -62,7 +62,7 @@
       <h3>Online Edition</h3>
       <p><strong>89.1 MB · Recommended</strong></p>
       <p>Start with the smaller APK. Core, Python, and Android runtime bundles are downloaded only when needed.</p>
-      <a href="https://github.com/techjarves/Mobile-Harness/releases/download/v1.0.7/mobile-harness-online-v1.0.7.apk">
+      <a href="https://github.com/mindsparq/MindSparQ-Mobile-Jarvis/releases/download/v1.0.7/mindsparq-harness-online-v1.0.7.apk">
         <img src="https://img.shields.io/badge/Download-Online_APK-F28C52?style=for-the-badge&logo=android&logoColor=white" alt="Download Online APK" />
       </a>
     </td>
@@ -70,7 +70,7 @@
       <h3>Offline Edition</h3>
       <p><strong>889.4 MB · Everything included</strong></p>
       <p>Includes the Core, Python, and Android runtime bundles for setup with limited or unavailable internet.</p>
-      <a href="https://github.com/techjarves/Mobile-Harness/releases/download/v1.0.7/mobile-harness-offline-v1.0.7.apk">
+      <a href="https://github.com/mindsparq/MindSparQ-Mobile-Jarvis/releases/download/v1.0.7/mindsparq-harness-offline-v1.0.7.apk">
         <img src="https://img.shields.io/badge/Download-Offline_APK-5B8DEF?style=for-the-badge&logo=android&logoColor=white" alt="Download Offline APK" />
       </a>
     </td>
@@ -86,7 +86,7 @@
 
 ## Capabilities
 
-Mobile Harness unites modern **Jetpack Compose UI** with a self-contained **Ubuntu 20.04 LTS subsystem**. It gives you a desktop-class software development environment in your pocket without requiring root access, unlocked bootloaders, or external applications like Termux.
+MindSparQ Harness unites modern **Jetpack Compose UI** with a self-contained **Ubuntu 20.04 LTS subsystem**. It gives you a desktop-class software development environment in your pocket without requiring root access, unlocked bootloaders, or external applications like Termux.
 
 <table>
   <tr>
@@ -166,7 +166,7 @@ Mobile Harness unites modern **Jetpack Compose UI** with a self-contained **Ubun
 Get up and running in 3 guided steps:
 
 ### 1. Download & Install
-Download the latest signed release APK from [GitHub Releases](https://github.com/techjarves/Mobile-Harness/releases/latest).
+Download the latest signed release APK from [GitHub Releases](https://github.com/mindsparq/MindSparQ-Mobile-Jarvis/releases/latest).
 
 ```text
 Target Architecture : ARM64 (arm64-v8a)
@@ -210,7 +210,7 @@ Launch the application and follow the interactive setup wizard:
 
 ## Model Providers
 
-Mobile Harness uses Claude Code's Anthropic-compatible API protocol. You can connect official endpoints or route requests through compatible translation proxies:
+MindSparQ Harness uses Claude Code's Anthropic-compatible API protocol. You can connect official endpoints or route requests through compatible translation proxies:
 
 | Provider | Integration Type | Streaming | Tool Calling | Status | Notes |
 | :--- | :---: | :---: | :---: | :---: | :--- |
@@ -221,7 +221,7 @@ Mobile Harness uses Claude Code's Anthropic-compatible API protocol. You can con
 | **Custom API** | Endpoint Override | Compatible | Compatible | `Experimental` | User-configured gateway |
 
 > [!NOTE]
-> API keys are stored with hardware-backed Android Keystore AES-256-GCM encryption. Antigravity Google OAuth credentials are created and retained only by the official `agy` CLI in its persistent Linux home; Mobile Harness never reads or copies its tokens.
+> API keys are stored with hardware-backed Android Keystore AES-256-GCM encryption. Antigravity Google OAuth credentials are created and retained only by the official `agy` CLI in its persistent Linux home; MindSparQ Harness never reads or copies its tokens.
 
 ### Coding agents
 
@@ -231,18 +231,18 @@ Mobile Harness uses Claude Code's Anthropic-compatible API protocol. You can con
 | **DeepSeek Harness** | API-key providers | On demand | Existing DSH bridge and settings |
 | **Antigravity CLI** | Official Google OAuth flow | Version-pinned online download | Dedicated `agy` bridge, model, effort, and conversation IDs |
 
-For Antigravity, select **Antigravity CLI**, install it, and tap **Sign in with Google**. Mobile Harness starts the official CLI login, opens the freshly generated Google URL in the system browser, and sends the returned one-time code back to that waiting process. The app does not embed Google login in a WebView and does not construct its own OAuth request.
+For Antigravity, select **Antigravity CLI**, install it, and tap **Sign in with Google**. MindSparQ Harness starts the official CLI login, opens the freshly generated Google URL in the system browser, and sends the returned one-time code back to that waiting process. The app does not embed Google login in a WebView and does not construct its own OAuth request.
 
 > [!WARNING]
 > Antigravity tasks currently launch with `--dangerously-skip-permissions`. This gives the official agent permission to run tools without individual PocketDev approval prompts. Use it only with projects and prompts you trust. Account quotas and service limits still apply; signing in does not provide unlimited usage.
 
-When Android is selected during onboarding, Mobile Harness installs that complete toolchain into its private Ubuntu environment. Android projects can then be built with the workspace play button. The resulting debug APK is passed directly to Android's system package installer and launched after installation; USB debugging, wireless debugging, an ADB port, and a pairing code are not required. Android still requires the user to allow installs from Mobile Harness and confirm each installation.
+When Android is selected during onboarding, MindSparQ Harness installs that complete toolchain into its private Ubuntu environment. Android projects can then be built with the workspace play button. The resulting debug APK is passed directly to Android's system package installer and launched after installation; USB debugging, wireless debugging, an ADB port, and a pairing code are not required. Android still requires the user to allow installs from MindSparQ Harness and confirm each installation.
 
 <br />
 
 ## Architecture
 
-Mobile Harness bridges native Android Jetpack Compose to an isolated PRoot Linux execution layer via an optimized C++ JNI bridge:
+MindSparQ Harness bridges native Android Jetpack Compose to an isolated PRoot Linux execution layer via an optimized C++ JNI bridge:
 
 ```mermaid
 flowchart TB
@@ -322,7 +322,7 @@ flowchart TB
 ### Clone & Build Debug APK
 ```bash
 # Clone the repository
-git clone https://github.com/techjarves/Mobile-Harness.git
+git clone https://github.com/mindsparq/MindSparQ-Mobile-Jarvis.git
 cd Mobile-Harness
 
 # Build the standard ARM64 debug binary
@@ -356,7 +356,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 <br />
 
-Mobile Harness allows downloading optional developer packs on demand to conserve space:
+MindSparQ Harness allows downloading optional developer packs on demand to conserve space:
 
 * **Python Suite**: Python 3.10+, pip, virtualenv, and essential scientific C-extensions.
 * **Android & JVM**: OpenJDK 17 headless runtime and Gradle build tools.
@@ -394,7 +394,7 @@ Mobile-Harness/
 
 <br />
 
-* **Zero Cloud Intermediaries**: Mobile Harness connects your device directly to your chosen AI endpoint. No intermediate relays or telemetry servers collect your prompts or code.
+* **Zero Cloud Intermediaries**: MindSparQ Harness connects your device directly to your chosen AI endpoint. No intermediate relays or telemetry servers collect your prompts or code.
 * **Scoped Storage**: Project imports and exports utilize Android's official Storage Access Framework (SAF) instead of broad shared storage access.
 * **Cryptographic Checksums**: Root filesystem archives and Claude Code CLI packages are verified via SHA-256 checksums prior to extraction.
 * **Encrypted Secrets**: API tokens are encrypted in hardware-backed storage via Android Keystore.
@@ -412,7 +412,7 @@ Read our complete [Privacy Policy](PRIVACY.md).
 
 </details>
 
-Mobile Harness is currently intended for signed direct APK distribution and private testing. Its Android-project workflow requests permission to submit user-built APKs to Android's package installer, which requires a dedicated Google Play policy declaration and approval if distributed through Play.
+MindSparQ Harness is currently intended for signed direct APK distribution and private testing. Its Android-project workflow requests permission to submit user-built APKs to Android's package installer, which requires a dedicated Google Play policy declaration and approval if distributed through Play.
 
 <br />
 
@@ -421,13 +421,13 @@ Mobile Harness is currently intended for signed direct APK distribution and priv
 * **Architecture**: Exclusively supports 64-bit ARM (`arm64-v8a`) hardware.
 * **Process Isolation**: PRoot maps file systems and IDs in user space; it is not a cryptographically hardened container or VM.
 * **Terminal Emulation**: The process bridge handles standard CLI workflows and REPLs; specialized ncurses applications may experience minor layout artifacts.
-* **OS Process Management**: Heavy compilation workloads may be throttled if Android applies aggressive battery optimization. It is recommended to exempt Mobile Harness from battery optimization in device settings.
+* **OS Process Management**: Heavy compilation workloads may be throttled if Android applies aggressive battery optimization. It is recommended to exempt MindSparQ Harness from battery optimization in device settings.
 
 <br />
 
 ## Legal & Trademarks
 
-* Mobile Harness is an independent open-source project and is not affiliated with, endorsed by, or sponsored by Anthropic.
+* MindSparQ Harness is an independent open-source project and is not affiliated with, endorsed by, or sponsored by Anthropic.
 * **Claude** and **Claude Code** are trademarks of Anthropic, PBC. Claude Code CLI is downloaded directly from Anthropic's official distribution endpoints during setup and remains governed by Anthropic's license terms.
 * Ubuntu, Android, Kotlin, Node.js, Git, and other registered trademarks belong to their respective copyright holders.
 * Third-party open-source licenses are compiled in [`app/src/main/assets/licenses`](app/src/main/assets/licenses).

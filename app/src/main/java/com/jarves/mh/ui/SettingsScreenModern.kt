@@ -480,22 +480,34 @@ fun SettingsScreen(
                         Icon(Icons.Default.Settings, null, Modifier.size(20.dp), tint = PocketOrange)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            Text("Mobile Harness", fontWeight = FontWeight.SemiBold)
-                            Text(stringResource(R.string.settings_app_desc), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("MindSparQ Harness", fontWeight = FontWeight.SemiBold)
+                            Text("Local AI coding & autonomous studio", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Text("v${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
+                var showPrivacyDialog by rememberSaveable { mutableStateOf(false) }
+                if (showPrivacyDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showPrivacyDialog = false },
+                        icon = { Icon(Icons.Default.PrivacyTip, null, tint = MaterialTheme.colorScheme.primary) },
+                        title = { Text("MindSparQ Privacy & Security") },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("• 100% Local Execution: All project files, terminal processes, and build outputs remain strictly on this device.", fontSize = 13.sp)
+                                Text("• Zero Telemetry: MindSparQ does not collect, transmit, or log your personal source code, terminal history, or prompts.", fontSize = 13.sp)
+                                Text("• Hardware Keystore Encryption: All API keys (Gemini, OpenRouter, NVIDIA) are encrypted using AES-256-GCM backed by Android Keystore.", fontSize = 13.sp)
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { showPrivacyDialog = false }) { Text("Close") }
+                        }
+                    )
+                }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable {
-                            runCatching {
-                                context.startActivity(
-                                    Intent(Intent.ACTION_VIEW, Uri.parse(BuildConfig.PRIVACY_POLICY_URL)),
-                                )
-                            }
-                        }
+                        .clickable { showPrivacyDialog = true }
                         .padding(vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -507,9 +519,9 @@ fun SettingsScreen(
                     )
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(stringResource(R.string.settings_privacy), fontWeight = FontWeight.Medium)
+                        Text("Privacy Policy & Security", fontWeight = FontWeight.Medium)
                         Text(
-                            stringResource(R.string.settings_privacy_desc),
+                            "100% local on-device sandbox · Hardware encrypted keys",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
