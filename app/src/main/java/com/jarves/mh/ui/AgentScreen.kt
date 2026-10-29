@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.ui.draw.clip
 import com.jarves.mh.ui.OfflineModelSection
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -763,21 +764,14 @@ fun AgentScreen(
                 modifier = Modifier.padding(top = 4.dp),
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
-                            modifier = Modifier.size(34.dp),
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.SmartToy,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        }
+                        androidx.compose.foundation.Image(
+                            painter = androidx.compose.ui.res.painterResource(R.drawable.mindsparq_logo),
+                            contentDescription = "MindSparQ Brand Logo",
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(9.dp)),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                        )
                         Spacer(Modifier.width(10.dp))
                         Column {
                             Text(stringResource(R.string.agent_screen_title), fontWeight = FontWeight.Bold, fontSize = 17.sp)

@@ -57,6 +57,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.WindowInsets
@@ -2453,8 +2454,30 @@ private fun RootScreenHost(
     viewModel: MainViewModel,
     projectsListState: LazyListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() },
 ) {
+    val context = LocalContext.current
     var screen by rememberSaveable { mutableStateOf(RootScreen.PROJECTS) }
     var showQuickTerminal by rememberSaveable { mutableStateOf(false) }
+    var lastBackPressMillis by remember { mutableStateOf(0L) }
+
+    BackHandler {
+        when {
+            showQuickTerminal -> {
+                showQuickTerminal = false
+            }
+            screen != RootScreen.PROJECTS -> {
+                screen = RootScreen.PROJECTS
+            }
+            else -> {
+                val now = System.currentTimeMillis()
+                if (now - lastBackPressMillis < 2000L) {
+                    (context as? Activity)?.finish()
+                } else {
+                    lastBackPressMillis = now
+                    Toast.makeText(context, "Press back again to exit MindSparQ", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
     val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val terminalLines by viewModel.terminalLines.collectAsStateWithLifecycle()
     val isTerminalRunning by viewModel.isTerminalRunning.collectAsStateWithLifecycle()
@@ -3555,6 +3578,7 @@ private fun ProjectsScreen(
     onInstallUpdate: () -> Unit,
 ) {
     var showCreate by rememberSaveable { mutableStateOf(false) }
+    var showLiveVoiceArchitect by rememberSaveable { mutableStateOf(false) }
     var showUpdateDialog by rememberSaveable { mutableStateOf(false) }
     var showGitDialog by rememberSaveable { mutableStateOf(false) }
     var showGitHubDialog by rememberSaveable { mutableStateOf(false) }
@@ -3644,6 +3668,73 @@ private fun ProjectsScreen(
                             fontSize = 13.sp,
                             maxLines = 1,
                             softWrap = false,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+
+                // ── Live Voice Idea Architect Card ──
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showLiveVoiceArchitect = true },
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                    border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(44.dp),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.Mic,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "Live Voice Idea Architect",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFFF59E0B).copy(alpha = 0.2f),
+                                ) {
+                                    Text(
+                                        "AI LIVE",
+                                        fontSize = 8.5.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color(0xFFF59E0B),
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                "Speak your idea naturally · AI clarifies & creates on 'Proceed'",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Icon(
+                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
@@ -3914,6 +4005,19 @@ private fun ProjectsScreen(
         },
         dismissButton = { TextButton(onClick = { showCreate = false }) { Text(stringResource(R.string.action_cancel)) } },
     )
+    if (showLiveVoiceArchitect) {
+        LiveVoiceProjectArchitectDialog(
+            onDismiss = { showLiveVoiceArchitect = false },
+            onCreateProject = { projName, template ->
+                if (template != null) {
+                    onCreateAndroid(projName, template)
+                } else {
+                    onCreate(projName)
+                }
+                showLiveVoiceArchitect = false
+            }
+        )
+    }
     if (showGitDialog) AlertDialog(
         onDismissRequest = { if (!state.gitCloneRunning) showGitDialog = false },
         icon = { Icon(Icons.Default.Code, null, tint = PocketOrange) },
@@ -4441,13 +4545,19 @@ private fun WorkspaceScreen(
     onCleanAndroid: () -> Unit,
     onInstallAndroidTools: () -> Unit,
 ) {
-    BackHandler(onBack = onBack)
+    var exportSelection by remember(state.activeProject?.id) { mutableStateOf(ExportSelection()) }
+    var exportSelectionMode by remember(state.activeProject?.id) { mutableStateOf(false) }
+    BackHandler {
+        when {
+            state.openedFile != null -> onCloseFile()
+            exportSelectionMode -> exportSelectionMode = false
+            else -> onBack()
+        }
+    }
     val context = LocalContext.current
     val isAndroidProject = state.androidProjectDetected
     val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     var pendingAndroidAction by remember { mutableStateOf<AndroidAction?>(null) }
-    var exportSelection by remember(state.activeProject?.id) { mutableStateOf(ExportSelection()) }
-    var exportSelectionMode by remember(state.activeProject?.id) { mutableStateOf(false) }
     val exportProjectLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/zip"),
         onResult = { uri -> if (uri != null) onExportProject(uri, exportSelection) },
@@ -7422,30 +7532,15 @@ private fun EmptyState(icon: ImageVector, title: String, body: String) {
 
 @Composable
 private fun BrandMark(modifier: Modifier = Modifier, compact: Boolean = false) {
-    val size = if (compact) 32.dp else 50.dp
-    val iconSize = if (compact) 17.dp else 24.dp
+    val size = if (compact) 34.dp else 52.dp
     val cornerRadius = if (compact) 9.dp else 14.dp
-    val primary = MaterialTheme.colorScheme.primary
 
-    Box(
+    androidx.compose.foundation.Image(
+        painter = androidx.compose.ui.res.painterResource(R.drawable.mindsparq_logo),
+        contentDescription = "MindSparQ Official Brand Logo",
         modifier = modifier
             .size(size)
-            .background(
-                color = primary.copy(alpha = 0.12f),
-                shape = RoundedCornerShape(cornerRadius),
-            )
-            .border(
-                width = 1.dp,
-                color = primary.copy(alpha = 0.32f),
-                shape = RoundedCornerShape(cornerRadius),
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = Icons.Default.Terminal,
-            contentDescription = "MindSparQ Harness",
-            modifier = Modifier.size(iconSize),
-            tint = primary,
-        )
-    }
+            .clip(RoundedCornerShape(cornerRadius)),
+        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+    )
 }

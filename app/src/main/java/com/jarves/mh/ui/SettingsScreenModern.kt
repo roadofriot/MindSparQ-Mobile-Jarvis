@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Check
@@ -180,31 +181,18 @@ fun SettingsScreen(
                 modifier = Modifier.padding(top = 8.dp),
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
+                        androidx.compose.foundation.Image(
+                            painter = androidx.compose.ui.res.painterResource(R.drawable.mindsparq_logo),
+                            contentDescription = "MindSparQ Official Logo",
                             modifier = Modifier
-                                .size(32.dp)
-                                .background(
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                                    shape = RoundedCornerShape(9.dp),
-                                )
-                                .border(
-                                    width = 1.dp,
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.32f),
-                                    shape = RoundedCornerShape(9.dp),
-                                ),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(17.dp),
-                            )
-                        }
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(9.dp)),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                        )
                         Spacer(Modifier.width(10.dp))
                         Column {
                             Text(stringResource(R.string.settings_title), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
-                            Text(stringResource(R.string.settings_subtitle), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("MindSparQ Autonomous Studio", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 },
