@@ -18,11 +18,35 @@ enum class ProviderKind(
     val fixedBaseUrl: Boolean = false,
     val fixedProtocol: Boolean = false,
 ) {
-    CLAUDE("Claude subscription", "Pro, Max, Team or Enterprise", ProviderProtocol.CLAUDE_LOGIN, "", "default"),
-    ANTHROPIC("Anthropic API", "Usage billed through Console", ProviderProtocol.ANTHROPIC, "https://api.anthropic.com", "claude-sonnet-4-6"),
-    LLM_ROUTER("OpenRouter", "Use your OpenRouter API key", ProviderProtocol.OPENROUTER, "https://openrouter.ai/api", "~anthropic/claude-sonnet-latest"),
+    GEMINI(
+        "Google Gemini",
+        "Gemini 2.5 Flash & Pro via API key",
+        ProviderProtocol.OPENAI_CHAT,
+        "https://generativelanguage.googleapis.com/v1beta/openai",
+        "gemini-2.5-flash",
+        fixedBaseUrl = true,
+        fixedProtocol = true,
+    ),
+    LLM_ROUTER("OpenRouter", "Free & paid models via OpenRouter", ProviderProtocol.OPENROUTER, "https://openrouter.ai/api", "meta-llama/llama-3.3-70b-instruct:free"),
+    OLLAMA(
+        "Ollama (Local / Offline)",
+        "Local open-source models on 127.0.0.1:11434",
+        ProviderProtocol.OPENAI_CHAT,
+        "http://127.0.0.1:11434/v1",
+        "qwen2.5-coder:1.5b",
+        fixedBaseUrl = false,
+        fixedProtocol = true,
+    ),
+    NVIDIA_NIM(
+        "NVIDIA NIM",
+        "Free models hosted by NVIDIA NIM",
+        ProviderProtocol.OPENAI_CHAT,
+        "https://integrate.api.nvidia.com/v1",
+        "meta/llama-3.3-70b-instruct",
+        fixedBaseUrl = true,
+        fixedProtocol = true,
+    ),
     DEEPSEEK("DeepSeek", "Use your DeepSeek API key", ProviderProtocol.ANTHROPIC_GATEWAY, "https://api.deepseek.com/anthropic", "deepseek-v4-flash"),
-    KIMI("Kimi", "Anthropic-compatible endpoint", ProviderProtocol.ANTHROPIC_GATEWAY, "https://api.moonshot.ai/anthropic", "kimi-k2.6", true),
     OPENCODE_ZEN(
         "OpenCode Zen",
         "Models through the OpenCode Zen gateway",
@@ -32,15 +56,9 @@ enum class ProviderKind(
         fixedBaseUrl = true,
         fixedProtocol = true,
     ),
-    NVIDIA_NIM(
-        "NVIDIA NIM",
-        "OpenAI-compatible models hosted by NVIDIA",
-        ProviderProtocol.OPENAI_CHAT,
-        "https://integrate.api.nvidia.com/v1",
-        "qwen/qwen2.5-coder-32b-instruct",
-        fixedBaseUrl = true,
-        fixedProtocol = true,
-    ),
+    ANTHROPIC("Anthropic API", "Usage billed through Console", ProviderProtocol.ANTHROPIC, "https://api.anthropic.com", "claude-sonnet-4-6"),
+    CLAUDE("Claude subscription", "Pro, Max, Team or Enterprise", ProviderProtocol.CLAUDE_LOGIN, "", "default"),
+    KIMI("Kimi", "Anthropic-compatible endpoint", ProviderProtocol.ANTHROPIC_GATEWAY, "https://api.moonshot.ai/anthropic", "kimi-k2.6", true),
     CUSTOM("Custom API", "Anthropic-compatible endpoint", ProviderProtocol.ANTHROPIC_GATEWAY, "", "", true),
 }
 
@@ -83,16 +101,20 @@ enum class AgentKind(
 
 /** Provider kinds usable with [AgentKind.DEEPSEEK_HARNESS]. Claude OAuth login has no dsh equivalent. */
 val DEEPSEEK_HARNESS_PROVIDERS: Set<ProviderKind> = setOf(
-    ProviderKind.DEEPSEEK,
-    ProviderKind.ANTHROPIC,
+    ProviderKind.GEMINI,
     ProviderKind.LLM_ROUTER,
-    ProviderKind.KIMI,
-    ProviderKind.OPENCODE_ZEN,
+    ProviderKind.OLLAMA,
     ProviderKind.NVIDIA_NIM,
+    ProviderKind.DEEPSEEK,
+    ProviderKind.OPENCODE_ZEN,
+    ProviderKind.ANTHROPIC,
+    ProviderKind.KIMI,
     ProviderKind.CUSTOM,
 )
 
 val DSH_PROTOCOL_PROVIDERS: Set<ProviderKind> = setOf(
+    ProviderKind.GEMINI,
+    ProviderKind.OLLAMA,
     ProviderKind.KIMI,
     ProviderKind.OPENCODE_ZEN,
     ProviderKind.NVIDIA_NIM,
@@ -100,6 +122,8 @@ val DSH_PROTOCOL_PROVIDERS: Set<ProviderKind> = setOf(
 )
 
 fun defaultDshApiForProvider(kind: ProviderKind): String = when (kind) {
+    ProviderKind.GEMINI -> "openai-completions"
+    ProviderKind.OLLAMA -> "openai-completions"
     ProviderKind.OPENCODE_ZEN -> "openai-responses"
     ProviderKind.NVIDIA_NIM -> "openai-completions"
     else -> "anthropic-messages"
@@ -134,9 +158,36 @@ fun providerProtocolForAgent(profile: ProviderProfile, agent: AgentKind): Provid
 
 /** Provider choices shown for the selected coding agent. */
 fun providersForAgent(agent: AgentKind): List<ProviderKind> = when (agent) {
-    AgentKind.DEEPSEEK_HARNESS -> ProviderKind.entries.filter { it in DEEPSEEK_HARNESS_PROVIDERS }
-    AgentKind.CLAUDE_CODE -> ProviderKind.entries.filterNot { it == ProviderKind.OPENCODE_ZEN }
-    AgentKind.ANTIGRAVITY -> emptyList()
+    AgentKind.DEEPSEEK_HARNESS -> listOf(
+        ProviderKind.GEMINI,
+        ProviderKind.LLM_ROUTER,
+        ProviderKind.OLLAMA,
+        ProviderKind.NVIDIA_NIM,
+        ProviderKind.DEEPSEEK,
+        ProviderKind.OPENCODE_ZEN,
+        ProviderKind.ANTHROPIC,
+        ProviderKind.KIMI,
+        ProviderKind.CUSTOM,
+    )
+    AgentKind.CLAUDE_CODE -> listOf(
+        ProviderKind.GEMINI,
+        ProviderKind.LLM_ROUTER,
+        ProviderKind.NVIDIA_NIM,
+        ProviderKind.OLLAMA,
+        ProviderKind.ANTHROPIC,
+        ProviderKind.CLAUDE,
+        ProviderKind.DEEPSEEK,
+        ProviderKind.KIMI,
+        ProviderKind.CUSTOM,
+    )
+    AgentKind.ANTIGRAVITY -> listOf(
+        ProviderKind.GEMINI,
+        ProviderKind.LLM_ROUTER,
+        ProviderKind.OLLAMA,
+        ProviderKind.NVIDIA_NIM,
+        ProviderKind.DEEPSEEK,
+        ProviderKind.CUSTOM,
+    )
 }
 
 data class ProviderProfile(

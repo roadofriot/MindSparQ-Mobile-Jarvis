@@ -729,6 +729,18 @@ internal object DshRouteMapper {
     fun forProfile(profile: ProviderProfile): DshRoute {
         val model = profile.model.ifBlank { profile.kind.defaultModel }
         return when (profile.kind) {
+            ProviderKind.GEMINI -> DshRoute(
+                name = "gemini-api",
+                keyEnv = DshRuntimeBridge.FALLBACK_KEY_ENV,
+                defaultModel = model,
+                custom = DshCustomRoute("openai-completions", profile.resolvedBaseUrl),
+            )
+            ProviderKind.OLLAMA -> DshRoute(
+                name = "ollama-local",
+                keyEnv = DshRuntimeBridge.FALLBACK_KEY_ENV,
+                defaultModel = model,
+                custom = DshCustomRoute("openai-completions", profile.resolvedBaseUrl),
+            )
             ProviderKind.DEEPSEEK -> DshRoute(
                 name = "deepseek-official",
                 keyEnv = "DEEPSEEK_API_KEY",

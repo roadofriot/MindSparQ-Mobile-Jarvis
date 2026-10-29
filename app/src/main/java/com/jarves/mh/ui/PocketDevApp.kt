@@ -3003,6 +3003,8 @@ private fun ProviderChoiceStep(
 
 @StringRes
 private fun providerTitleResource(provider: ProviderKind): Int = when (provider) {
+    ProviderKind.GEMINI -> R.string.provider_title_gemini
+    ProviderKind.OLLAMA -> R.string.provider_title_ollama
     ProviderKind.CLAUDE -> R.string.provider_title_claude
     ProviderKind.ANTHROPIC -> R.string.provider_title_anthropic
     ProviderKind.LLM_ROUTER -> R.string.provider_title_openrouter
@@ -3015,6 +3017,8 @@ private fun providerTitleResource(provider: ProviderKind): Int = when (provider)
 
 @StringRes
 private fun providerSubtitleResource(provider: ProviderKind): Int = when (provider) {
+    ProviderKind.GEMINI -> R.string.provider_subtitle_gemini
+    ProviderKind.OLLAMA -> R.string.provider_subtitle_ollama
     ProviderKind.CLAUDE -> R.string.provider_subtitle_claude
     ProviderKind.ANTHROPIC -> R.string.provider_subtitle_anthropic
     ProviderKind.LLM_ROUTER -> R.string.provider_subtitle_openrouter
@@ -3031,6 +3035,8 @@ private fun ProviderChoiceRow(
     onClick: () -> Unit,
 ) {
     val accent = when (provider) {
+        ProviderKind.GEMINI -> Color(0xFF4285F4)
+        ProviderKind.OLLAMA -> Color(0xFF10B981)
         ProviderKind.CLAUDE -> Color(0xFFD97757)
         ProviderKind.ANTHROPIC -> Color(0xFFE7A26D)
         ProviderKind.LLM_ROUTER -> Color(0xFF5B8DEF)
@@ -3041,6 +3047,8 @@ private fun ProviderChoiceRow(
         ProviderKind.CUSTOM -> PocketOrange
     }
     val mark = when (provider) {
+        ProviderKind.GEMINI -> "G"
+        ProviderKind.OLLAMA -> "OL"
         ProviderKind.CLAUDE -> "C"
         ProviderKind.ANTHROPIC -> "A"
         ProviderKind.LLM_ROUTER -> "OR"

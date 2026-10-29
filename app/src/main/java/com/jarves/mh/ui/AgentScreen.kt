@@ -849,8 +849,8 @@ fun AgentScreen(
                                 val isInstalled = installedVersion != null
                                 val updateAvailable = state.agentUpdates.containsKey(agent)
                                 val shortTitle = when (agent) {
-                                    AgentKind.ANTIGRAVITY -> "Antigravity"
-                                    AgentKind.DEEPSEEK_HARNESS -> "DeepSeek"
+                                    AgentKind.ANTIGRAVITY -> "Antigravity CLI"
+                                    AgentKind.DEEPSEEK_HARNESS -> "API Key Engine"
                                     AgentKind.CLAUDE_CODE -> "Claude Code"
                                 }
                                 Surface(
@@ -986,21 +986,85 @@ fun AgentScreen(
 
             // ── 2. Primary Configuration Card (Antigravity OR Provider) ──
             item {
-                if (!viewedAgentInstalled || viewedAgent != state.agentKind) {
-                    // Installation/selection guidance is shown directly below the tabs.
+                if (!viewedAgentInstalled) {
+                    // Installation guidance is shown directly below the tabs.
+                } else if (viewedAgent != state.agentKind) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(16.dp)) {
+                            Text(
+                                "Engine: ${viewedAgent.title}",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "Tap below to switch the active coding agent to ${viewedAgent.title}.",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Button(
+                                onClick = { onSelectAgent(viewedAgent) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                            ) {
+                                Text("Activate ${viewedAgent.title}", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                 } else if (state.agentKind == AgentKind.ANTIGRAVITY) {
-                    AgentAntigravityCard(
-                        state = state,
-                        code = antigravityCode,
-                        onCode = { antigravityCode = it },
-                        onStartLogin = onStartAntigravityLogin,
-                        onSubmitCode = { onSubmitAntigravityCode(antigravityCode); antigravityCode = "" },
-                        onLogout = onLogoutAntigravity,
-                        onRefreshModels = onRefreshAntigravityModels,
-                        onOpenModelSheet = { showAntigravityModelSheet = true },
-                        onSetEffort = onSetAntigravityEffort,
-                        onTest = onPing,
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        AgentAntigravityCard(
+                            state = state,
+                            code = antigravityCode,
+                            onCode = { antigravityCode = it },
+                            onStartLogin = onStartAntigravityLogin,
+                            onSubmitCode = { onSubmitAntigravityCode(antigravityCode); antigravityCode = "" },
+                            onLogout = onLogoutAntigravity,
+                            onRefreshModels = onRefreshAntigravityModels,
+                            onOpenModelSheet = { showAntigravityModelSheet = true },
+                            onSetEffort = onSetAntigravityEffort,
+                            onTest = onPing,
+                        )
+
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(Modifier.padding(14.dp)) {
+                                Text(
+                                    "Need Gemini API Key, OpenRouter Free, or Ollama?",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "Switch to 'API Key Engine' above to connect Google Gemini (2.5 Flash / Pro), OpenRouter free models, NVIDIA NIM, and local Ollama.",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Button(
+                                    onClick = {
+                                        viewedAgent = AgentKind.DEEPSEEK_HARNESS
+                                        onSelectAgent(AgentKind.DEEPSEEK_HARNESS)
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text("Switch to API Key Engine", fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                    }
                 } else {
                     AgentProviderCard(
                         onTest = onPing,
@@ -2163,25 +2227,45 @@ private fun AgentSelectionDot(selected: Boolean) {
 
 /** Provides popular default models for providers when discovery hasn't been run or is unavailable. */
 private fun defaultModelsForProvider(kind: ProviderKind, context: android.content.Context): List<DiscoveredModel> = when (kind) {
+    ProviderKind.GEMINI -> listOf(
+        DiscoveredModel("gemini-2.5-flash", "Gemini 2.5 Flash (Fast, Latest)"),
+        DiscoveredModel("gemini-2.5-pro", "Gemini 2.5 Pro (Deep Reasoning)"),
+        DiscoveredModel("gemini-2.5-flash-lite", "Gemini 2.5 Flash-Lite (Low Latency)"),
+        DiscoveredModel("gemini-2.0-flash", "Gemini 2.0 Flash (Stable)"),
+    )
+    ProviderKind.LLM_ROUTER -> listOf(
+        DiscoveredModel("meta-llama/llama-3.3-70b-instruct:free", "Llama 3.3 70B (Free · 128k)"),
+        DiscoveredModel("deepseek/deepseek-r1:free", "DeepSeek R1 (Free · Reasoning)"),
+        DiscoveredModel("qwen/qwen-2.5-coder-32b-instruct:free", "Qwen 2.5 Coder 32B (Free · Coding)"),
+        DiscoveredModel("google/gemini-2.0-flash-exp:free", "Gemini 2.0 Flash Exp (Free)"),
+        DiscoveredModel("mistralai/mistral-7b-instruct:free", "Mistral 7B Instruct (Free)"),
+        DiscoveredModel("deepseek/deepseek-chat:free", "DeepSeek Chat (Free)"),
+        DiscoveredModel("deepseek/deepseek-r1", "DeepSeek R1"),
+        DiscoveredModel("anthropic/claude-3.7-sonnet", "Claude 3.7 Sonnet"),
+        DiscoveredModel("openai/gpt-4o", "GPT-4o"),
+    )
+    ProviderKind.OLLAMA -> listOf(
+        DiscoveredModel("qwen2.5-coder:1.5b", "Qwen 2.5 Coder 1.5B (Local · Fast)"),
+        DiscoveredModel("qwen2.5-coder:7b", "Qwen 2.5 Coder 7B (Local)"),
+        DiscoveredModel("deepseek-r1:1.5b", "DeepSeek R1 1.5B (Local · Reasoning)"),
+        DiscoveredModel("llama3.2:3b", "Llama 3.2 3B (Local)"),
+    )
+    ProviderKind.NVIDIA_NIM -> listOf(
+        DiscoveredModel("meta/llama-3.3-70b-instruct", "Llama 3.3 70B (NVIDIA Free)"),
+        DiscoveredModel("deepseek-ai/deepseek-r1", "DeepSeek R1 (NVIDIA Free)"),
+        DiscoveredModel("mistralai/mistral-large-2-instruct", "Mistral Large 2 (NVIDIA Free)"),
+        DiscoveredModel("qwen/qwen2.5-coder-32b-instruct", "Qwen 2.5 Coder 32B (NVIDIA Free)"),
+    )
     ProviderKind.DEEPSEEK -> listOf(
         DiscoveredModel("deepseek-v4-flash", "DeepSeek-V4 Flash"),
     )
     ProviderKind.OPENCODE_ZEN -> listOf(
         DiscoveredModel(ProviderKind.OPENCODE_ZEN.defaultModel, context.getString(R.string.md_model_opencode_default)),
     )
-    ProviderKind.NVIDIA_NIM -> listOf(
-        DiscoveredModel(ProviderKind.NVIDIA_NIM.defaultModel, "Qwen 2.5 Coder 32B"),
-    )
     ProviderKind.ANTHROPIC -> listOf(
         DiscoveredModel("claude-3-7-sonnet-20250219", "Claude 3.7 Sonnet (Hybrid)"),
         DiscoveredModel("claude-3-5-sonnet-20241022", "Claude 3.5 Sonnet v2"),
         DiscoveredModel("claude-3-5-haiku-20241022", "Claude 3.5 Haiku"),
-    )
-    ProviderKind.LLM_ROUTER -> listOf(
-        DiscoveredModel("deepseek/deepseek-r1", "DeepSeek R1 (via OpenRouter)"),
-        DiscoveredModel("anthropic/claude-3.7-sonnet", "Claude 3.7 Sonnet"),
-        DiscoveredModel("openai/gpt-4o", "GPT-4o"),
-        DiscoveredModel("meta-llama/llama-3.3-70b-instruct", "Llama 3.3 70B"),
     )
     ProviderKind.KIMI -> listOf(
         DiscoveredModel("kimi-k2.6", "Kimi K2.6"),

@@ -19,9 +19,11 @@ import com.jarves.mh.model.ProviderKind
 
 @StringRes
 fun ProviderKind.titleRes(): Int = when (this) {
+    ProviderKind.GEMINI -> R.string.provider_title_gemini
+    ProviderKind.LLM_ROUTER -> R.string.provider_title_openrouter
+    ProviderKind.OLLAMA -> R.string.provider_title_ollama
     ProviderKind.CLAUDE -> R.string.provider_title_claude
     ProviderKind.ANTHROPIC -> R.string.provider_title_anthropic
-    ProviderKind.LLM_ROUTER -> R.string.provider_title_openrouter
     ProviderKind.DEEPSEEK -> R.string.provider_title_deepseek
     ProviderKind.KIMI -> R.string.provider_title_kimi
     ProviderKind.OPENCODE_ZEN -> R.string.provider_title_opencode
@@ -31,9 +33,11 @@ fun ProviderKind.titleRes(): Int = when (this) {
 
 @StringRes
 fun ProviderKind.subtitleRes(): Int = when (this) {
+    ProviderKind.GEMINI -> R.string.provider_subtitle_gemini
+    ProviderKind.LLM_ROUTER -> R.string.provider_subtitle_openrouter
+    ProviderKind.OLLAMA -> R.string.provider_subtitle_ollama
     ProviderKind.CLAUDE -> R.string.provider_subtitle_claude
     ProviderKind.ANTHROPIC -> R.string.provider_subtitle_anthropic
-    ProviderKind.LLM_ROUTER -> R.string.provider_subtitle_openrouter
     ProviderKind.DEEPSEEK -> R.string.provider_subtitle_deepseek
     ProviderKind.KIMI, ProviderKind.CUSTOM -> R.string.provider_subtitle_anthropic_compatible
     ProviderKind.OPENCODE_ZEN -> R.string.provider_subtitle_opencode

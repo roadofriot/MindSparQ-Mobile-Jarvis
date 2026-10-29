@@ -29,5 +29,9 @@
     <string name="action_clear">खाली गर्नुहोस्</string>
     <string name="action_refresh">ताजा गर्नुहोस्</string>
     <string name="action_test">परीक्षण</string>
+    <string name="provider_title_gemini">गुगल जेमिनाई</string>
+    <string name="provider_subtitle_gemini">जेमिनाई २.५ फ्ल्यास र प्रो (API कुञ्जी)</string>
+    <string name="provider_title_ollama">ओलामा (स्थानीय / अफलाइन)</string>
+    <string name="provider_subtitle_ollama">स्थानीय मोडेलहरू 127.0.0.1:11434 मा</string>
 </resources>
 
