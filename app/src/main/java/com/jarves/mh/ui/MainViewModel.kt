@@ -912,11 +912,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         viewModelScope.launch(Dispatchers.IO) {
-            getApplication<Application>().cacheDir.listFiles().orEmpty()
-                .filter { it.isFile && it.name.startsWith("runtime-output-") }
-                .forEach { runCatching { it.delete() } }
+            val result = com.jarves.mh.runtime.OfflineModelManager.clearAppCache(getApplication())
+            releaseMemoryCaches()
             withContext(Dispatchers.Main) {
-                _state.update { it.copy(toastMessage = str(R.string.diagnostics_cache_cleared)) }
+                _state.update { it.copy(toastMessage = "✨ Cache Cleared! Freed ${result.formattedFreed} · System optimized.") }
                 lastDiagnosticsRefreshAtElapsedMillis = 0L
                 refreshDeveloperDiagnostics()
             }

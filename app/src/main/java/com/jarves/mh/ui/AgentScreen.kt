@@ -49,7 +49,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import com.mindsparq.jarvis.core.designsystem.components.OfflineModelDownloadSection
+import com.jarves.mh.ui.OfflineModelSection
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -1215,10 +1215,8 @@ fun AgentScreen(
 
             // ── 3. On-Device Offline AI Models (Local SLM Studio) ──
             item {
-                OfflineModelDownloadSection(
-                    detectedRamGb = 12,
-                    activeModelId = "llama-3.2-3b",
-                    onSetActiveModel = { _ -> }
+                OfflineModelSection(
+                    onModelSelected = { _ -> }
                 )
             }
 
