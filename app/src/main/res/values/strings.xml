@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">MindSparQ Jarvis</string>
+    <string name="app_name">MindSparQ Harness</string>
 
     <!-- Navigation / Bottom Tabs -->
     <string name="tab_projects">Projects</string>
