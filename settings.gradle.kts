@@ -14,5 +14,9 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "MobileHarness"
+rootProject.name = "MindSparQ-Jarvis"
 include(":app")
+include(":core:model")
+include(":core:database")
+include(":core:policy")
+include(":core:designsystem")

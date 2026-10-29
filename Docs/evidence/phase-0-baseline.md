@@ -82,3 +82,4 @@
 - [x] Baseline evidence recorded in `Docs/evidence/phase-0-baseline.md`.
 
 **Phase 0 is COMPLETE. Ready to proceed to Phase 1 (Architecture Setup, KMP & Database).**
+
