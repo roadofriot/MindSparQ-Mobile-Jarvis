@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>JARVIS // Command Hub</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "on-tertiary": "#003825",
+            "inverse-on-surface": "#2d3137",
+            "primary-container": "#00f0ff",
+            "on-primary-fixed-variant": "#004f54",
+            "surface": "#10141a",
+            "surface-tint": "#00dbe9",
+            "error": "#ffb4ab",
+            "primary-fixed": "#7df4ff",
+            "on-surface-variant": "#b9cacb",
+            "tertiary-fixed-dim": "#00e2a0",
+            "secondary": "#c0c1ff",
+            "tertiary-fixed": "#43ffbb",
+            "on-surface": "#dfe2eb",
+            "surface-container-highest": "#31353c",
+            "on-tertiary-fixed": "#002114",
+            "on-primary-fixed": "#002022",
+            "on-error": "#690005",
+            "on-tertiary-container": "#006d4b",
+            "on-background": "#dfe2eb",
+            "primary": "#dbfcff",
+            "primary-fixed-dim": "#00dbe9",
+            "secondary-fixed": "#e1e0ff",
+            "outline-variant": "#3b494b",
+            "tertiary": "#d9ffe9",
+            "surface-container-lowest": "#0a0e14",
+            "background": "#10141a",
+            "surface-dim": "#10141a",
+            "on-primary": "#00363a",
+            "on-secondary-fixed-variant": "#2f2ebe",
+            "on-tertiary-fixed-variant": "#005138",
+            "on-secondary": "#1000a9",
+            "surface-container-low": "#181c22",
+            "error-container": "#93000a",
+            "surface-container": "#1c2026",
+            "secondary-container": "#3131c0",
+            "secondary-fixed-dim": "#c0c1ff",
+            "on-secondary-container": "#b0b2ff",
+            "tertiary-container": "#34f6b2",
+            "on-primary-container": "#006970",
+            "on-error-container": "#ffdad6",
+            "outline": "#849495",
+            "inverse-primary": "#006970",
+            "surface-variant": "#31353c",
+            "surface-container-high": "#262a31",
+            "on-secondary-fixed": "#07006c",
+            "inverse-surface": "#dfe2eb",
+            "surface-bright": "#353940"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-sm": "0.5rem",
+            "gutter": "0.75rem",
+            "space-xl": "1.5rem",
+            "space-md": "0.75rem",
+            "space-xs": "0.25rem",
+            "margin": "1rem",
+            "space-lg": "1rem"
+          },
+          "fontFamily": {
+            "headline-lg-mobile": ["Inter"],
+            "headline-sm": ["Inter"],
+            "label-md": ["JetBrains Mono"],
+            "label-sm": ["JetBrains Mono"],
+            "code-lg": ["JetBrains Mono"],
+            "code-sm": ["JetBrains Mono"],
+            "code-md": ["JetBrains Mono"],
+            "body-lg": ["Inter"],
+            "headline-lg": ["Inter"],
+            "headline-md": ["Inter"],
+            "body-sm": ["Inter"],
+            "body-md": ["Inter"]
+          },
+          "fontSize": {
+            "headline-lg-mobile": ["26px", {"lineHeight": "34px", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+            "headline-sm": ["18px", {"lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "500"}],
+            "label-md": ["12px", {"lineHeight": "16px", "letterSpacing": "0.04em", "fontWeight": "500"}],
+            "label-sm": ["10px", {"lineHeight": "14px", "letterSpacing": "0.06em", "fontWeight": "500"}],
+            "code-lg": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+            "code-sm": ["11px", {"lineHeight": "16px", "fontWeight": "400"}],
+            "code-md": ["12px", {"lineHeight": "18px", "fontWeight": "400"}],
+            "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+            "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+            "headline-md": ["22px", {"lineHeight": "28px", "letterSpacing": "-0.015em", "fontWeight": "600"}],
+            "body-sm": ["12px", {"lineHeight": "16px", "fontWeight": "400"}],
+            "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      font-size: 20px;
+      line-height: 1;
+    }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.92); opacity: 0.6; }
+      50% { transform: scale(1.08); opacity: 0.2; }
+      100% { transform: scale(0.92); opacity: 0.6; }
+    }
+    @keyframes pulse-core {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 24px rgba(0, 240, 255, 0.45); }
+      50% { transform: scale(1.04); box-shadow: 0 0 36px rgba(0, 240, 255, 0.7); }
+    }
+    .wave-ring-1 { animation: pulse-ring 3.8s ease-in-out infinite; }
+    .wave-ring-2 { animation: pulse-ring 2.6s ease-in-out infinite 0.7s; }
+    .wave-ring-3 { animation: pulse-ring 4.2s ease-in-out infinite 1.4s; }
+    .core-orb { animation: pulse-core 3s ease-in-out infinite; }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface antialiased min-h-screen flex flex-col font-body-md selection:bg-primary-container selection:text-on-primary-container pb-28">
+<!-- TOP APP BAR (Shared Components JSON Anchor) -->
+<header class="bg-surface/80 dark:bg-surface/80 backdrop-blur-md sticky top-0 z-40 w-full">
+<div class="flex justify-between items-center w-full px-margin py-space-sm max-w-screen-md mx-auto">
+<!-- Leading Identity: Terminal Icon + Project Switcher Anchor -->
+<div class="flex items-center gap-space-sm">
+<button aria-label="Terminal Shell" class="p-1 rounded text-primary-container hover:bg-surface-container-high/50 transition-colors duration-150 active:scale-95 flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="terminal">terminal</span>
+</button>
+<div class="flex flex-col">
+<span class="text-headline-sm font-headline-sm font-semibold tracking-wider text-primary-container dark:text-primary-container leading-none">JARVIS // OS</span>
+<div class="flex items-center gap-1 mt-0.5">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container animate-ping"></span>
+<span class="font-label-sm text-label-sm text-outline tracking-wider uppercase">NovaPay Mobile</span>
+<span class="material-symbols-outlined text-outline" data-icon="arrow_drop_down" style="font-size: 14px;">arrow_drop_down</span>
+</div>
+</div>
+</div>
+<!-- Trailing Action Hub with Agent Pulse Telemetry -->
+<div class="flex items-center gap-space-xs">
+<!-- Agent Pulse Pill Indicator -->
+<div class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-container-high border border-outline-variant/30">
+<span class="w-1.5 h-1.5 rounded-full bg-primary-container"></span>
+<span class="font-label-sm text-label-sm text-primary-container">SYNC 98.4%</span>
+</div>
+<!-- Notifications button with badge hint -->
+<button class="w-9 h-9 rounded flex items-center justify-center text-on-surface hover:bg-surface-container-high/50 transition-colors duration-150 active:scale-95 relative" title="System alerts">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-primary-container"></span>
+</button>
+<!-- Settings button -->
+<button class="w-9 h-9 rounded flex items-center justify-center text-on-surface hover:bg-surface-container-high/50 transition-colors duration-150 active:scale-95" title="Settings">
+<span class="material-symbols-outlined" data-icon="graphic_eq">graphic_eq</span>
+</button>
+</div>
+</div>
+</header>
+<!-- MAIN VIEWPORT CONTAINER -->
+<main class="w-full max-w-screen-md mx-auto px-margin flex flex-col gap-space-lg flex-1">
+<!-- HERO NEURAL VOICE ORB SECTION -->
+<section class="relative pt-space-md pb-space-sm flex flex-col items-center justify-center text-center overflow-hidden">
+<!-- Ambient Orb Radial Glow Backdrop -->
+<div class="relative w-64 h-64 flex items-center justify-center">
+<!-- Concentric Subtle Cyan Audio Waves -->
+<div class="absolute inset-0 rounded-full border border-primary-container/10 wave-ring-1"></div>
+<div class="absolute inset-4 rounded-full border border-primary-container/20 wave-ring-2"></div>
+<div class="absolute inset-10 rounded-full border border-primary-container/30 wave-ring-3"></div>
+<div class="absolute inset-16 rounded-full border border-outline-variant/40"></div>
+<!-- Center Core Orb Node -->
+<div class="core-orb relative w-24 h-24 rounded-full bg-surface-container-lowest border border-primary-container/80 flex flex-col items-center justify-center backdrop-blur-xl">
+<span class="material-symbols-outlined text-primary-container" data-icon="neurology" style="font-size: 32px;">neurology</span>
+<div class="w-4 h-0.5 bg-primary-container/60 rounded-full mt-1.5"></div>
+</div>
+</div>
+<!-- Voice State HUD Indicator -->
+<div class="flex flex-col items-center mt-2">
+<div class="flex items-center gap-2 px-3 py-1 rounded-full bg-surface-container-low border border-primary-container/20">
+<span class="w-2 h-2 rounded-full bg-primary-container animate-pulse"></span>
+<span class="font-code-sm text-code-sm text-primary">Listening to prompt...</span>
+</div>
+<p class="font-label-sm text-label-sm text-outline mt-1.5">vibe-code synthesis online • latency 18ms</p>
+</div>
+</section>
+<!-- NATURAL LANGUAGE VIBE-CODING PROMPT INPUT BOX -->
+<section class="w-full">
+<div class="rounded-xl bg-surface-container-lowest border border-outline-variant/40 p-space-sm transition-all focus-within:border-primary-container focus-within:ring-1 focus-within:ring-primary-container">
+<!-- Mode HUD header -->
+<div class="flex items-center justify-between px-1 pb-1 mb-1 border-b border-outline-variant/20">
+<div class="flex items-center gap-1.5">
+<span class="font-code-sm text-code-sm text-primary-container font-semibold">&gt;_</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">JARVIS AST ENGINE // v4.2</span>
+</div>
+<span class="font-label-sm text-label-sm text-outline">SwiftUI / Kotlin Multiplatform</span>
+</div>
+<!-- Input Area -->
+<div class="flex items-start gap-space-xs pt-1">
+<textarea class="w-full bg-transparent border-0 text-on-surface placeholder:text-outline font-body-md text-body-md focus:ring-0 resize-none p-1 leading-snug outline-none" placeholder="Describe mobile interaction, architecture flow, or screen refactor..." rows="2"></textarea>
+</div>
+<!-- Input Control Deck & Tools -->
+<div class="flex items-center justify-between pt-2 mt-1">
+<div class="flex items-center gap-1">
+<!-- Voice Dictation Button -->
+<button class="w-8 h-8 rounded-lg flex items-center justify-center text-primary-container bg-surface-container hover:bg-surface-container-high transition-colors active:scale-95" title="Voice dictation active">
+<span class="material-symbols-outlined" data-icon="mic">mic</span>
+</button>
+<!-- Camera / Sketch / Wireframe Upload Button -->
+<button class="w-8 h-8 rounded-lg flex items-center justify-center text-outline hover:text-on-surface bg-surface-container hover:bg-surface-container-high transition-colors active:scale-95" title="Upload UI wireframe or sketch">
+<span class="material-symbols-outlined" data-icon="photo_camera">photo_camera</span>
+</button>
+<!-- Attach Code AST Context -->
+<button class="w-8 h-8 rounded-lg flex items-center justify-center text-outline hover:text-on-surface bg-surface-container hover:bg-surface-container-high transition-colors active:scale-95" title="Reference code schema">
+<span class="material-symbols-outlined" data-icon="attach_file">attach_file</span>
+</button>
+</div>
+<!-- Fast Submit Action Execution Button -->
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-container text-on-primary-container font-headline-sm text-body-sm font-semibold active:scale-95 transition-transform" title="Execute vibe synthesis">
+<span>Synthesize</span>
+<span class="material-symbols-outlined" data-icon="send">send</span>
+</button>
+</div>
+</div>
+</section>
+<!-- QUICK PROMPT VIBE CHIPS -->
+<section class="w-full flex flex-col gap-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm text-outline tracking-wider">QUICK GENERATIVE PATTERNS</span>
+<span class="font-label-sm text-label-sm text-primary-container">PRESETS</span>
+</div>
+<div class="flex items-center gap-space-xs overflow-x-auto pb-1 no-scrollbar -mx-margin px-margin">
+<!-- Chip 1 -->
+<button class="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-container-low border border-outline-variant/30 hover:border-primary-container/50 active:scale-95 transition-all">
+<span class="material-symbols-outlined text-primary-container" data-icon="lock_open" style="font-size: 16px;">lock_open</span>
+<span class="font-code-sm text-code-sm text-on-surface whitespace-nowrap">Build Auth Flow</span>
+</button>
+<!-- Chip 2 -->
+<button class="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-container-low border border-outline-variant/30 hover:border-primary-container/50 active:scale-95 transition-all">
+<span class="material-symbols-outlined text-secondary" data-icon="shopping_bag" style="font-size: 16px;">shopping_bag</span>
+<span class="font-code-sm text-code-sm text-on-surface whitespace-nowrap">Redesign Checkout</span>
+</button>
+<!-- Chip 3 -->
+<button class="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-container-low border border-outline-variant/30 hover:border-primary-container/50 active:scale-95 transition-all">
+<span class="material-symbols-outlined text-tertiary-container" data-icon="credit_card" style="font-size: 16px;">credit_card</span>
+<span class="font-code-sm text-code-sm text-on-surface whitespace-nowrap">Add Apple Pay</span>
+</button>
+<!-- Chip 4 -->
+<button class="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-container-low border border-outline-variant/30 hover:border-primary-container/50 active:scale-95 transition-all">
+<span class="material-symbols-outlined text-error" data-icon="speed" style="font-size: 16px;">speed</span>
+<span class="font-code-sm text-code-sm text-on-surface whitespace-nowrap">Fix State Lag</span>
+</button>
+</div>
+</section>
+<!-- ACTIVE AUTONOMOUS SUB-AGENTS STATUS CARD -->
+<section class="w-full rounded-xl bg-surface-container-low border border-outline-variant/30 p-space-md flex flex-col gap-space-sm">
+<div class="flex items-center justify-between pb-space-xs border-b border-outline-variant/20">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-tertiary-container"></span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Active Sub-Agents</h2>
+</div>
+<span class="font-code-sm text-code-sm text-outline">3 / 3 RUNNING</span>
+</div>
+<!-- Agent 1: CodeGen Agent -->
+<div class="flex items-center justify-between p-2 rounded-lg bg-surface-container-lowest/60 border border-outline-variant/20">
+<div class="flex items-center gap-2.5">
+<div class="w-7 h-7 rounded-md bg-surface-container flex items-center justify-center text-primary-container">
+<span class="material-symbols-outlined" data-icon="code" style="font-size: 16px;">code</span>
+</div>
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-on-surface font-semibold">CodeGen Agent</span>
+<span class="font-label-sm text-label-sm text-outline">Writing CheckoutSheet.swift (L248)</span>
+</div>
+</div>
+<div class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary-container/10 border border-primary-container/30">
+<span class="font-label-sm text-label-sm text-primary-container">Streaming</span>
+</div>
+</div>
+<!-- Agent 2: Architecture Validator -->
+<div class="flex items-center justify-between p-2 rounded-lg bg-surface-container-lowest/60 border border-outline-variant/20">
+<div class="flex items-center gap-2.5">
+<div class="w-7 h-7 rounded-md bg-surface-container flex items-center justify-center text-secondary">
+<span class="material-symbols-outlined" data-icon="schema" style="font-size: 16px;">schema</span>
+</div>
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-on-surface font-semibold">Architecture Validator</span>
+<span class="font-label-sm text-label-sm text-outline">Checking MVI Uni-directional Flow</span>
+</div>
+</div>
+<div class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary-container/20 border border-secondary/30">
+<span class="font-label-sm text-label-sm text-secondary">Validating</span>
+</div>
+</div>
+<!-- Agent 3: Security Linter -->
+<div class="flex items-center justify-between p-2 rounded-lg bg-surface-container-lowest/60 border border-outline-variant/20">
+<div class="flex items-center gap-2.5">
+<div class="w-7 h-7 rounded-md bg-surface-container flex items-center justify-center text-tertiary-container">
+<span class="material-symbols-outlined" data-icon="security" style="font-size: 16px;">security</span>
+</div>
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-on-surface font-semibold">Security Linter</span>
+<span class="font-label-sm text-label-sm text-outline">OAuth2 PKCE Token Audit</span>
+</div>
+</div>
+<div class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-tertiary-container/10 border border-tertiary-container/30">
+<span class="font-label-sm text-label-sm text-tertiary-container">Passed 0 Errors</span>
+</div>
+</div>
+</section>
+<!-- RECENT MOBILE PROJECTS ROW -->
+<section class="w-full flex flex-col gap-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm text-outline tracking-wider">PROJECT REPOSITORIES</span>
+<button class="font-label-sm text-label-sm text-primary-container hover:underline">VIEW ALL (12)</button>
+</div>
+<div class="grid grid-cols-2 gap-space-xs">
+<!-- Project Card 1: Active Focus -->
+<div class="rounded-xl bg-surface-container-low border border-primary-container/40 p-space-sm flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between">
+<span class="w-2 h-2 rounded-full bg-primary-container"></span>
+<span class="font-code-sm text-code-sm text-outline">main</span>
+</div>
+<h3 class="font-headline-sm text-body-md font-semibold text-on-surface mt-1 truncate">NovaPay Mobile</h3>
+<p class="font-label-sm text-label-sm text-outline mt-0.5">iOS • KMP Target</p>
+</div>
+<div class="flex items-center justify-between pt-3 mt-1 border-t border-outline-variant/20">
+<span class="font-code-sm text-code-sm text-outline-variant">94 commits</span>
+<span class="font-code-sm text-code-sm text-tertiary-container">99.8% test</span>
+</div>
+</div>
+<!-- Project Card 2: Secondary App -->
+<div class="rounded-xl bg-surface-container-low border border-outline-variant/30 p-space-sm flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between">
+<span class="w-2 h-2 rounded-full bg-outline"></span>
+<span class="font-code-sm text-code-sm text-outline">v2.1-dev</span>
+</div>
+<h3 class="font-headline-sm text-body-md font-semibold text-on-surface mt-1 truncate">Aegis Guardian</h3>
+<p class="font-label-sm text-label-sm text-outline mt-0.5">Android • Compose</p>
+</div>
+<div class="flex items-center justify-between pt-3 mt-1 border-t border-outline-variant/20">
+<span class="font-code-sm text-code-sm text-outline-variant">312 commits</span>
+<span class="font-code-sm text-code-sm text-outline">ready</span>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- BOTTOM NAV BAR (Shared Components JSON Anchor) -->
+<!-- Contextual Logic: Active tab is 'Hub' (First destination, matches Command Hub page intent) -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-gutter py-space-xs max-w-screen-md mx-auto bg-surface/90 dark:bg-surface/90 backdrop-blur-xl">
+<!-- Hub: Active State (Executes style_active_navigation) -->
+<a aria-label="Hub" class="flex flex-col items-center justify-center text-primary-container dark:text-primary-container py-1 px-3 rounded-xl bg-surface-container-highest/60 transition-all duration-200 active:scale-90" href="#hub">
+<span class="material-symbols-outlined" data-icon="neurology">neurology</span>
+<span class="text-label-sm font-label-sm">Hub</span>
+</a>
+<!-- Studio: Inactive State (Executes style_inactive_navigation) -->
+<a aria-label="Studio" class="flex flex-col items-center justify-center text-outline dark:text-outline py-1 px-3 hover:text-primary-fixed-dim transition-all duration-200 active:scale-90" href="#studio">
+<span class="material-symbols-outlined" data-icon="code_blocks">code_blocks</span>
+<span class="text-label-sm font-label-sm">Studio</span>
+</a>
+<!-- Sim: Inactive State (Executes style_inactive_navigation) -->
+<a aria-label="Sim" class="flex flex-col items-center justify-center text-outline dark:text-outline py-1 px-3 hover:text-primary-fixed-dim transition-all duration-200 active:scale-90" href="#sim">
+<span class="material-symbols-outlined" data-icon="devices">devices</span>
+<span class="text-label-sm font-label-sm">Sim</span>
+</a>
+<!-- Deploy: Inactive State (Executes style_inactive_navigation) -->
+<a aria-label="Deploy" class="flex flex-col items-center justify-center text-outline dark:text-outline py-1 px-3 hover:text-primary-fixed-dim transition-all duration-200 active:scale-90" href="#deploy">
+<span class="material-symbols-outlined" data-icon="rocket_launch">rocket_launch</span>
+<span class="text-label-sm font-label-sm">Deploy</span>
+</a>
+</nav>
+</body></html>

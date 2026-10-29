@@ -72,7 +72,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.jarves.mh"
+        applicationId = "com.mindsparq.jarvis"
         minSdk = 28
         // The direct APK retains the proven target-28 PRoot execution path. The
         // Play build targets current Android while its runtime path is validated.
@@ -188,6 +188,10 @@ tasks.register("playReadinessCheck") {
 
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2025.02.00"))
+    implementation(project(":core:model"))
+    implementation(project(":core:database"))
+    implementation(project(":core:policy"))
+    implementation(project(":core:designsystem"))
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.10.0")
     implementation("androidx.compose.ui:ui")
