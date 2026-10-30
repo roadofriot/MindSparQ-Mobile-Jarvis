@@ -64,3 +64,8 @@ dist/runtime-bundles/sources/
 
 # Generated local in-app update test artifacts.
 dist/update-test/
+
+# Private local documentation
+Docs/
+docs/
+
