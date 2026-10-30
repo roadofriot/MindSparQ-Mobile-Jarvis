@@ -146,7 +146,11 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -4799,7 +4803,7 @@ private fun WorkspaceScreen(
         },
         bottomBar = {
             if (!keyboardVisible) NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                WorkspaceTab.entries.filter { it != WorkspaceTab.CHANGES }.forEach { tab ->
+                WorkspaceTab.entries.forEach { tab ->
                     NavigationBarItem(
                         selected = selectedTab == tab,
                         onClick = {
@@ -4807,7 +4811,22 @@ private fun WorkspaceScreen(
                             if (tab == WorkspaceTab.FILES) onRefreshFiles()
                             if (tab == WorkspaceTab.TERMINAL) onTerminalOpened()
                         },
-                        icon = { Icon(tab.icon, stringResource(tab.labelRes)) },
+                        icon = {
+                            if (tab == WorkspaceTab.CHANGES && state.changes.isNotEmpty()) {
+                                BadgedBox(badge = {
+                                    Badge(
+                                        containerColor = MaterialTheme.colorScheme.primary,
+                                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                                    ) {
+                                        Text("${state.changes.size}")
+                                    }
+                                }) {
+                                    Icon(tab.icon, stringResource(tab.labelRes))
+                                }
+                            } else {
+                                Icon(tab.icon, stringResource(tab.labelRes))
+                            }
+                        },
                         label = { Text(stringResource(tab.labelRes), fontSize = 10.sp) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = MaterialTheme.colorScheme.primary,
@@ -6513,6 +6532,48 @@ private fun ChatTab(
                                 attachment = attachment,
                                 onOpen = null,
                                 onRemove = { onRemoveAttachment(attachment.id) },
+                            )
+                        }
+                    }
+                }
+
+                // Mobile Coding Quick Prompt Strip
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(bottom = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    val promptShortcuts = listOf(
+                        "Tab", "`", "```", "/", "{ }", "( )", "git status", "run build", "fix error", "explain code"
+                    )
+                    promptShortcuts.forEach { shortcut ->
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                            modifier = Modifier.clickable {
+                                prompt = when (shortcut) {
+                                    "Tab" -> prompt + "    "
+                                    "{ }" -> prompt + "{  }"
+                                    "( )" -> prompt + "( )"
+                                    "```" -> prompt + "\n```\n\n```"
+                                    "git status" -> if (prompt.isBlank()) "git status" else "$prompt git status"
+                                    "run build" -> if (prompt.isBlank()) "Please run build and check for errors" else "$prompt and run build"
+                                    "fix error" -> if (prompt.isBlank()) "Fix the following error:\n" else "$prompt fix this error"
+                                    "explain code" -> if (prompt.isBlank()) "Explain this architecture and code structure" else "$prompt explain this"
+                                    else -> prompt + shortcut
+                                }
+                            }
+                        ) {
+                            Text(
+                                text = shortcut,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             )
                         }
                     }

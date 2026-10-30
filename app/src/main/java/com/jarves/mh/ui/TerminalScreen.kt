@@ -445,42 +445,60 @@ fun TerminalScreen(
                 }
             }
 
-            // Keyboard helper row. These operate on the command draft, so they are
-            // useful even when the phone keyboard does not expose terminal keys.
-            if (!keyboardVisible) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 14.dp)
-                        .padding(bottom = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    TerminalKeyButton("↑", stringResource(R.string.ws_terminal_previous_command)) {
-                        commandHistory.getOrNull(if (historyIndex < 0) commandHistory.lastIndex else (historyIndex - 1).coerceAtLeast(0))?.let {
-                            historyIndex = if (historyIndex < 0) commandHistory.lastIndex else (historyIndex - 1).coerceAtLeast(0)
-                            commandInput = TextFieldValue(it, TextRange(it.length))
-                        }
-                    }
-                    TerminalKeyButton("↓", stringResource(R.string.ws_terminal_next_command)) {
-                        if (historyIndex >= 0) {
-                            historyIndex = (historyIndex + 1).takeIf { it < commandHistory.size } ?: -1
-                            commandInput = TextFieldValue(commandHistory.getOrNull(historyIndex) ?: "", TextRange((commandHistory.getOrNull(historyIndex) ?: "").length))
-                        }
-                    }
-                    TerminalIconKeyButton(Icons.Default.ArrowBack, stringResource(R.string.ws_terminal_cursor_left)) {
-                        commandInput = commandInput.copy(selection = TextRange((commandInput.selection.start - 1).coerceAtLeast(0)))
-                    }
-                    TerminalIconKeyButton(Icons.Default.ArrowForward, stringResource(R.string.ws_terminal_cursor_right)) {
-                        commandInput = commandInput.copy(selection = TextRange((commandInput.selection.end + 1).coerceAtMost(commandInput.text.length)))
-                    }
-                    TerminalKeyButton("ALT", stringResource(R.string.ws_terminal_alt_modifier), active = altActive, fixedWidth = true) { altActive = !altActive }
-                    TerminalKeyButton("ESC", stringResource(R.string.ws_terminal_escape)) { commandInput = TextFieldValue() }
-                    TerminalKeyButton("CTRL", stringResource(R.string.ws_terminal_ctrl_modifier), active = ctrlActive, fixedWidth = true) {
-                        ctrlActive = !ctrlActive
-                        if (ctrlActive) openTerminalKeyboard()
+            // Keyboard coding shortcut helper row.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 14.dp)
+                    .padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                TerminalKeyButton("Tab", "Insert Tab") {
+                    val current = commandInput.text
+                    val start = commandInput.selection.start.coerceIn(0, current.length)
+                    val end = commandInput.selection.end.coerceIn(0, current.length)
+                    val newText = current.substring(0, start) + "\t" + current.substring(end)
+                    commandInput = TextFieldValue(newText, TextRange(start + 1))
+                }
+                TerminalKeyButton("CTRL", stringResource(R.string.ws_terminal_ctrl_modifier), active = ctrlActive, fixedWidth = true) {
+                    ctrlActive = !ctrlActive
+                    if (ctrlActive) openTerminalKeyboard()
+                }
+                TerminalKeyButton("ESC", stringResource(R.string.ws_terminal_escape)) { commandInput = TextFieldValue() }
+                TerminalKeyButton("↑", stringResource(R.string.ws_terminal_previous_command)) {
+                    commandHistory.getOrNull(if (historyIndex < 0) commandHistory.lastIndex else (historyIndex - 1).coerceAtLeast(0))?.let {
+                        historyIndex = if (historyIndex < 0) commandHistory.lastIndex else (historyIndex - 1).coerceAtLeast(0)
+                        commandInput = TextFieldValue(it, TextRange(it.length))
                     }
                 }
+                TerminalKeyButton("↓", stringResource(R.string.ws_terminal_next_command)) {
+                    if (historyIndex >= 0) {
+                        historyIndex = (historyIndex + 1).takeIf { it < commandHistory.size } ?: -1
+                        commandInput = TextFieldValue(commandHistory.getOrNull(historyIndex) ?: "", TextRange((commandHistory.getOrNull(historyIndex) ?: "").length))
+                    }
+                }
+                TerminalIconKeyButton(Icons.Default.ArrowBack, stringResource(R.string.ws_terminal_cursor_left)) {
+                    commandInput = commandInput.copy(selection = TextRange((commandInput.selection.start - 1).coerceAtLeast(0)))
+                }
+                TerminalIconKeyButton(Icons.Default.ArrowForward, stringResource(R.string.ws_terminal_cursor_right)) {
+                    commandInput = commandInput.copy(selection = TextRange((commandInput.selection.end + 1).coerceAtMost(commandInput.text.length)))
+                }
+                listOf("|", "/", "~", "$", "\"", "'", "{", "}", ";", "git", "clear").forEach { sym ->
+                    TerminalKeyButton(sym, "Insert $sym") {
+                        if (sym == "clear") {
+                            onClear()
+                        } else {
+                            val ins = if (sym == "git") "git " else sym
+                            val current = commandInput.text
+                            val start = commandInput.selection.start.coerceIn(0, current.length)
+                            val end = commandInput.selection.end.coerceIn(0, current.length)
+                            val newText = current.substring(0, start) + ins + current.substring(end)
+                            commandInput = TextFieldValue(newText, TextRange(start + ins.length))
+                        }
+                    }
+                }
+                TerminalKeyButton("ALT", stringResource(R.string.ws_terminal_alt_modifier), active = altActive, fixedWidth = true) { altActive = !altActive }
             }
         }
     }
