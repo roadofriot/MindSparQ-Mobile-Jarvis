@@ -384,8 +384,7 @@ fun UnifiedAiProviderSheet(
                             IconButton(onClick = {
                                 coroutineScope.launch {
                                     isDiscoveringModels = true
-                                    val key = activeKey?.let { "" } ?: ""
-                                    val res = onDiscoverModels(state.provider, key)
+                                    val res = onDiscoverModels(state.provider, "")
                                     if (res is ModelDiscoveryResult.Success) {
                                         discoveredModels = res.models
                                     }
@@ -400,6 +399,133 @@ fun UnifiedAiProviderSheet(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
                     )
+
+                    // Quick Model Suggestions or Discovered Models List
+                    val displayedModels = remember(discoveredModels, state.provider.kind) {
+                        if (discoveredModels.isNotEmpty()) {
+                            discoveredModels
+                        } else {
+                            when (state.provider.kind) {
+                                ProviderKind.GEMINI -> listOf(
+                                    DiscoveredModel("gemini-2.5-flash", "Gemini 2.5 Flash (Fast & Multimodal)", isFree = true),
+                                    DiscoveredModel("gemini-2.5-pro", "Gemini 2.5 Pro (Deep Reasoning)", isFree = true),
+                                    DiscoveredModel("gemini-2.0-flash", "Gemini 2.0 Flash", isFree = true)
+                                )
+                                ProviderKind.LLM_ROUTER -> listOf(
+                                    DiscoveredModel("meta-llama/llama-3.3-70b-instruct:free", "Llama 3.3 70B Instruct (Free)", isFree = true),
+                                    DiscoveredModel("qwen/qwen-2.5-coder-32b-instruct:free", "Qwen 2.5 Coder 32B (Free)", isFree = true),
+                                    DiscoveredModel("deepseek/deepseek-r1:free", "DeepSeek R1 (Free)", isFree = true)
+                                )
+                                ProviderKind.OLLAMA -> listOf(
+                                    DiscoveredModel("qwen2.5-coder:1.5b", "Qwen 2.5 Coder 1.5B (Local)", isFree = true),
+                                    DiscoveredModel("qwen2.5-coder:0.5b", "Qwen 2.5 Coder 0.5B (Ultralight)", isFree = true),
+                                    DiscoveredModel("deepseek-r1:1.5b", "DeepSeek R1 1.5B (Local Reasoning)", isFree = true)
+                                )
+                                ProviderKind.NVIDIA_NIM -> listOf(
+                                    DiscoveredModel("meta/llama-3.3-70b-instruct", "NVIDIA Llama 3.3 70B", isFree = true),
+                                    DiscoveredModel("deepseek-ai/deepseek-r1", "NVIDIA DeepSeek R1", isFree = true)
+                                )
+                                ProviderKind.DEEPSEEK -> listOf(
+                                    DiscoveredModel("deepseek-chat", "DeepSeek V3 (Chat/Coding)", isFree = false),
+                                    DiscoveredModel("deepseek-reasoner", "DeepSeek R1 (Reasoner)", isFree = false)
+                                )
+                                ProviderKind.ANTHROPIC -> listOf(
+                                    DiscoveredModel("claude-sonnet-4-6", "Claude Sonnet 4.6", isFree = false),
+                                    DiscoveredModel("claude-3-7-sonnet-latest", "Claude 3.7 Sonnet", isFree = false)
+                                )
+                                else -> emptyList()
+                            }
+                        }
+                    }
+
+                    if (displayedModels.isNotEmpty()) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        if (discoveredModels.isNotEmpty()) "DISCOVERED MODELS (${displayedModels.size})" else "RECOMMENDED MODELS",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    if (discoveredModels.isEmpty()) {
+                                        TextButton(
+                                            onClick = {
+                                                coroutineScope.launch {
+                                                    isDiscoveringModels = true
+                                                    val res = onDiscoverModels(state.provider, "")
+                                                    if (res is ModelDiscoveryResult.Success) {
+                                                        discoveredModels = res.models
+                                                    }
+                                                    isDiscoveringModels = false
+                                                }
+                                            },
+                                            contentPadding = PaddingValues(0.dp)
+                                        ) {
+                                            Text("Discover live", fontSize = 11.sp, color = PocketOrange)
+                                        }
+                                    }
+                                }
+                                displayedModels.take(8).forEach { model ->
+                                    val isSelected = state.provider.model == model.id
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { onSelectModel(model.id) }
+                                            .padding(horizontal = 8.dp, vertical = 7.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                model.displayName,
+                                                fontSize = 12.5.sp,
+                                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                                color = if (isSelected) PocketOrange else MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                model.id,
+                                                fontSize = 10.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        if (model.isFree) {
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = Color(0xFF10B981).copy(alpha = 0.15f),
+                                                modifier = Modifier.padding(horizontal = 6.dp)
+                                            ) {
+                                                Text(
+                                                    "FREE",
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color(0xFF10B981),
+                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                        if (isSelected) {
+                                            Icon(
+                                                Icons.Default.Check,
+                                                contentDescription = "Selected",
+                                                tint = PocketOrange,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     // Multi-Key Management
                     Row(

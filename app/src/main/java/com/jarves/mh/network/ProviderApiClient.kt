@@ -167,7 +167,12 @@ class ProviderApiClient(private val context: Context? = null) {
             return HttpResult(0, "", text(R.string.rt_api_http_public, "Plain http:// is only allowed for local network addresses. Use https:// for this server."))
         }
         return runCatching {
-            val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+            val effectiveUrl = if (endpoint.contains("generativelanguage.googleapis.com") && !endpoint.contains("/openai") && apiKey.isNotBlank() && !endpoint.contains("key=")) {
+                if (endpoint.contains("?")) "$endpoint&key=$apiKey" else "$endpoint?key=$apiKey"
+            } else {
+                endpoint
+            }
+            val connection = (URL(effectiveUrl).openConnection() as HttpURLConnection).apply {
                 requestMethod = method
                 connectTimeout = connectTimeoutMs
                 readTimeout = readTimeoutMs
@@ -210,7 +215,21 @@ class ProviderApiClient(private val context: Context? = null) {
         val withoutAnthropic = base.removeSuffix("/anthropic")
         val candidates = when (protocol) {
             ProviderProtocol.OPENROUTER -> listOf("$base/v1/models")
-            ProviderProtocol.OPENAI_CHAT, ProviderProtocol.OPENAI_RESPONSES -> listOf("$base/models")
+            ProviderProtocol.OPENAI_CHAT, ProviderProtocol.OPENAI_RESPONSES -> {
+                if (base.contains("generativelanguage.googleapis.com")) {
+                    listOf(
+                        "https://generativelanguage.googleapis.com/v1beta/models",
+                        "$base/models"
+                    )
+                } else if (base.contains("127.0.0.1:11434") || base.contains("localhost:11434")) {
+                    listOf(
+                        "${base.removeSuffix("/v1")}/api/tags",
+                        "$base/models"
+                    )
+                } else {
+                    listOf("$base/models", "$base/v1/models")
+                }
+            }
             else -> listOf("$base/v1/models", "$base/models", "$withoutAnthropic/models", "$withoutAnthropic/v1/models")
         }
         return candidates.distinct()
@@ -332,11 +351,28 @@ object ModelResponseParser {
                 when (val item = array.opt(index)) {
                     is String -> add(DiscoveredModel(item))
                     is JSONObject -> {
-                        val id = item.optString("id").ifBlank { item.optString("name") }
+                        val rawId = item.optString("id").ifBlank { item.optString("name") }.ifBlank { item.optString("model") }
+                        val id = rawId.removePrefix("models/")
                         if (id.isNotBlank()) {
-                            val label = item.optString("display_name").ifBlank { item.optString("displayName") }.ifBlank { id }
+                            val methods = item.optJSONArray("supportedGenerationMethods")
+                            if (methods != null) {
+                                var hasGenerateContent = false
+                                for (m in 0 until methods.length()) {
+                                    if (methods.optString(m) == "generateContent") {
+                                        hasGenerateContent = true
+                                        break
+                                    }
+                                }
+                                if (!hasGenerateContent) continue
+                            }
+
+                            val label = item.optString("display_name")
+                                .ifBlank { item.optString("displayName") }
+                                .ifBlank { id }
                             val pricing = item.optJSONObject("pricing")
-                            val free = id.endsWith(":free", ignoreCase = true) || pricing?.let {
+                            val isOllamaOrLocal = item.has("size") || item.has("digest")
+                            val isGemini = id.startsWith("gemini-")
+                            val free = id.endsWith(":free", ignoreCase = true) || isGemini || isOllamaOrLocal || pricing?.let {
                                 listOf("prompt", "completion", "request").all { field ->
                                     it.optString(field, "0").toDoubleOrNull() == 0.0
                                 }
