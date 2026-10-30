@@ -73,6 +73,8 @@ import com.jarves.mh.runtime.readTailText
 import com.jarves.mh.runtime.supportsArm64Runtime
 import com.jarves.mh.runtime.AndroidAppInstaller
 import com.jarves.mh.runtime.AndroidBuildPhase
+import com.mindsparq.jarvis.ai.gateway.KeyPoolManager
+import com.mindsparq.jarvis.ai.gateway.ManagedKey
 import com.jarves.mh.runtime.AndroidBuildRecord
 import com.jarves.mh.runtime.AndroidAction
 import com.jarves.mh.runtime.AndroidApkInfo
@@ -419,6 +421,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val vault = ApiKeyVault(application)
     private val preferences = AppPreferences(application)
+    private val keyPoolManager = KeyPoolManager()
+
+    private fun syncKeyPool() {
+        ProviderKind.entries.forEach { kind ->
+            val credentials = vault.credentials(kind.name)
+            val managed = credentials.mapIndexed { index, cred ->
+                ManagedKey(
+                    id = cred.id,
+                    providerId = kind.name,
+                    secretKey = cred.secret,
+                    label = cred.name,
+                    priority = if (cred.isActive) 1 else 10 + index,
+                )
+            }
+            keyPoolManager.registerKeys(kind.name, managed)
+        }
+    }
     private val claudeRuntime = ClaudeRuntimeBridge(application) { profile -> vault.get(profile.kind.name) }
     private val dshRuntime = DshRuntimeBridge(application) { profile -> vault.get(profile.kind.name) }
     private val installer = RuntimeInstaller(application)
@@ -513,6 +532,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     init {
+        syncKeyPool()
         viewModelScope.launch {
             AndroidAppInstaller.events.collect { event ->
                 if (event.operationId != pendingAndroidInstallId) return@collect
@@ -2015,6 +2035,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveGeminiApiKey(secret: String) {
         vault.put(ProviderKind.GEMINI.name, secret.trim())
+        syncKeyPool()
     }
 
     fun getSavedApiKeys(kind: ProviderKind): List<ApiKeyInfo> = vault.list(kind.name)
@@ -2023,18 +2044,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         vault.add(kind.name, name, secret)
         val keys = vault.list(kind.name)
         refreshActiveApiKey(kind)
+        syncKeyPool()
         return keys
     }
 
     fun activateApiKey(kind: ProviderKind, keyId: String): List<ApiKeyInfo> {
         vault.activate(kind.name, keyId)
         refreshActiveApiKey(kind)
+        syncKeyPool()
         return vault.list(kind.name)
     }
 
     fun removeApiKey(kind: ProviderKind, keyId: String): List<ApiKeyInfo> {
         vault.remove(kind.name, keyId)
         refreshActiveApiKey(kind)
+        syncKeyPool()
         return vault.list(kind.name)
     }
 
@@ -2057,6 +2081,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        syncKeyPool()
         viewModelScope.launch { RuntimeSetupController.snapshot.collect(::onSetupSnapshot) }
         viewModelScope.launch { claudeRuntime.events.collect(::onRuntimeEvent) }
         viewModelScope.launch { bootstrap() }
@@ -4936,8 +4961,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val project = state.value.activeProject ?: return
         if (_state.value.agentKind == AgentKind.ANTIGRAVITY &&
             _state.value.antigravityAuth.status != AntigravityAuthStatus.SIGNED_IN) {
-            _state.update { it.copy(toastMessage = str(R.string.vm_antigravity_signin_before_task)) }
-            return
+            val hasApiKey = vault.contains(state.value.provider.kind.name) ||
+                vault.contains(ProviderKind.GEMINI.name) ||
+                vault.contains(ProviderKind.LLM_ROUTER.name)
+            if (!hasApiKey) {
+                _state.update { it.copy(toastMessage = str(R.string.vm_antigravity_signin_before_task)) }
+                return
+            }
         }
         if (_state.value.agentKind == AgentKind.DEEPSEEK_HARNESS && _state.value.provider.kind == ProviderKind.CLAUDE) {
             _state.update { it.copy(toastMessage = str(R.string.vm_dsh_claude_unsupported)) }
@@ -5032,8 +5062,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             appendLine("</attached_files>")
         }
         failedApiKeyIds.clear()
+        val runtimeToUse = if (_state.value.agentKind == AgentKind.ANTIGRAVITY &&
+            _state.value.provider.kind != ProviderKind.CUSTOM &&
+            vault.contains(_state.value.provider.kind.name) &&
+            _state.value.antigravityAuth.status != AntigravityAuthStatus.SIGNED_IN) {
+            if (installer.isAgentInstalled(AgentKind.DEEPSEEK_HARNESS)) dshRuntime else claudeRuntime
+        } else {
+            activeRuntime()
+        }
         activeRuntimeRequest = RuntimeRetryRequest(
-            runtime = activeRuntime(),
+            runtime = runtimeToUse,
             project = project,
             prompt = runtimePrompt,
             history = history,
@@ -5480,35 +5518,115 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun retryWithNextApiKey(event: RuntimeEvent.SessionFailed): Boolean {
         val current = _state.value
-        if (current.agentKind == AgentKind.ANTIGRAVITY) return false
         if (!current.isRunning || current.activeSessionId != event.sessionId) return false
-        if (!isApiKeyFailure(event.reason)) return false
         val request = activeRuntimeRequest ?: return false
+
+        // 1. Antigravity credit exhaustion fallback
+        if (current.agentKind == AgentKind.ANTIGRAVITY) {
+            val isCreditFailure = event.reason.contains("credit", ignoreCase = true) ||
+                event.reason.contains("quota", ignoreCase = true) ||
+                event.reason.contains("out of credits", ignoreCase = true) ||
+                event.reason.contains("not logged in", ignoreCase = true) ||
+                event.reason.contains("sign-in", ignoreCase = true)
+
+            if (isCreditFailure) {
+                val candidateKinds = listOf(ProviderKind.GEMINI, ProviderKind.LLM_ROUTER, ProviderKind.DEEPSEEK)
+                val fallbackKind = candidateKinds.firstOrNull { vault.get(it.name).isNullOrBlank().not() }
+                if (fallbackKind != null) {
+                    val targetAgent = if (installer.isAgentInstalled(AgentKind.DEEPSEEK_HARNESS)) AgentKind.DEEPSEEK_HARNESS else AgentKind.CLAUDE_CODE
+                    val fallbackProfile = preferences.loadProvider(vault, targetAgent).copy(kind = fallbackKind)
+                    preferences.agentKind = targetAgent.stableId
+                    preferences.saveProvider(fallbackProfile, targetAgent)
+
+                    _state.update {
+                        it.copy(
+                            agentKind = targetAgent,
+                            provider = fallbackProfile,
+                            activeSessionId = null,
+                            toastMessage = "Antigravity credits unavailable. Auto-switched to ${fallbackKind.title} via API key.",
+                            liveProcess = it.liveProcess + ActivityItem("Route Fallback", "Antigravity credit limit reached. Continuing with ${fallbackKind.title}.", true),
+                        )
+                    }
+                    viewModelScope.launch {
+                        kotlinx.coroutines.delay(400)
+                        activeRuntime().startSession(
+                            request.project.id,
+                            request.project.slug,
+                            request.project.kind,
+                            request.prompt,
+                            request.history,
+                            fallbackProfile,
+                        )
+                    }
+                    return true
+                }
+            }
+            return false
+        }
+
+        // 2. Multi-key pool rotation for active provider
+        if (!isApiKeyFailure(event.reason)) return false
         val credentials = vault.credentials(request.provider.kind.name)
         val active = credentials.firstOrNull { it.isActive } ?: return false
         failedApiKeyIds += active.id
-        val next = credentials.firstOrNull { it.id !in failedApiKeyIds } ?: return false
-        if (!vault.activate(request.provider.kind.name, next.id)) return false
-        _state.update {
-            it.copy(
-                activeSessionId = null,
-                activeApiKeyName = next.name,
-                toastMessage = str(R.string.vm_key_switched_toast, active.name, next.name),
-                liveProcess = it.liveProcess + ActivityItem(str(R.string.vm_api_key_switched), str(R.string.vm_using_key, next.name), true),
-            )
+        keyPoolManager.reportRateLimit(active.id, 60_000L)
+
+        val candidate = keyPoolManager.acquireCandidateKey(request.provider.kind.name)
+        val nextKeyId = candidate?.id ?: credentials.firstOrNull { it.id !in failedApiKeyIds }?.id
+        if (nextKeyId != null && vault.activate(request.provider.kind.name, nextKeyId)) {
+            val nextName = credentials.firstOrNull { it.id == nextKeyId }?.name ?: candidate?.label ?: "Backup Key"
+            _state.update {
+                it.copy(
+                    activeSessionId = null,
+                    activeApiKeyName = nextName,
+                    toastMessage = str(R.string.vm_key_switched_toast, active.name, nextName),
+                    liveProcess = it.liveProcess + ActivityItem(str(R.string.vm_api_key_switched), str(R.string.vm_using_key, nextName), true),
+                )
+            }
+            viewModelScope.launch {
+                kotlinx.coroutines.delay(300)
+                request.runtime.startSession(
+                    request.project.id,
+                    request.project.slug,
+                    request.project.kind,
+                    request.prompt,
+                    request.history,
+                    request.provider,
+                )
+            }
+            return true
         }
-        viewModelScope.launch {
-            kotlinx.coroutines.delay(300)
-            request.runtime.startSession(
-                request.project.id,
-                request.project.slug,
-                request.project.kind,
-                request.prompt,
-                request.history,
-                request.provider,
-            )
+
+        // 3. Multi-provider fallback if all keys for active provider are exhausted
+        val fallbackCandidates = listOf(ProviderKind.GEMINI, ProviderKind.LLM_ROUTER, ProviderKind.DEEPSEEK)
+            .filter { it != request.provider.kind && vault.get(it.name).isNullOrBlank().not() }
+        val nextProviderKind = fallbackCandidates.firstOrNull()
+        if (nextProviderKind != null) {
+            val nextProfile = preferences.loadProvider(vault, current.agentKind).copy(kind = nextProviderKind)
+            preferences.saveProvider(nextProfile, current.agentKind)
+            _state.update {
+                it.copy(
+                    provider = nextProfile,
+                    activeSessionId = null,
+                    toastMessage = "Quota exhausted on ${request.provider.kind.title}. Falling back to ${nextProviderKind.title}.",
+                    liveProcess = it.liveProcess + ActivityItem("Provider Fallback", "Switching to ${nextProviderKind.title}.", true),
+                )
+            }
+            viewModelScope.launch {
+                kotlinx.coroutines.delay(400)
+                activeRuntime().startSession(
+                    request.project.id,
+                    request.project.slug,
+                    request.project.kind,
+                    request.prompt,
+                    request.history,
+                    nextProfile,
+                )
+            }
+            return true
         }
-        return true
+
+        return false
     }
 
     /**
@@ -5560,7 +5678,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val value = reason.lowercase()
         return "api key" in value || "authentication" in value || "user not found" in value ||
             "http 401" in value || "http 403" in value || "http 429" in value ||
-            "expired" in value || "quota" in value || "rate limit" in value
+            "expired" in value || "quota" in value || "rate limit" in value ||
+            "credits" in value || "credit" in value
     }
 
     private fun touchProject(projectId: String) {

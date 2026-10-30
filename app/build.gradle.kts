@@ -193,6 +193,7 @@ dependencies {
     implementation(project(":core:policy"))
     implementation(project(":core:designsystem"))
     implementation(project(":engine:voice"))
+    implementation(project(":ai:gateway"))
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.10.0")
