@@ -478,6 +478,8 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             onCleanAndroid = viewModel::cleanAndroidProject,
             onInstallAndroidTools = { viewModel.installDevStack(DevStack.ANDROID) },
             onOpenAiHub = { showUnifiedAiSheet = true },
+            onExecuteHandover = viewModel::handoverTask,
+            onDismissHandover = viewModel::dismissHandover,
         )
         else -> RootScreenHost(
             state = state,
@@ -5329,6 +5331,8 @@ private fun WorkspaceScreen(
     onCleanAndroid: () -> Unit,
     onInstallAndroidTools: () -> Unit,
     onOpenAiHub: () -> Unit = {},
+    onExecuteHandover: () -> Unit = {},
+    onDismissHandover: () -> Unit = {},
 ) {
     var exportSelection by remember(state.activeProject?.id) { mutableStateOf(ExportSelection()) }
     var exportSelectionMode by remember(state.activeProject?.id) { mutableStateOf(false) }
@@ -5673,6 +5677,9 @@ private fun WorkspaceScreen(
                     queuedFollowUps = state.queuedFollowUps,
                     onSteerFollowUp = onSteerFollowUp,
                     onRemoveFollowUp = onRemoveFollowUp,
+                    handoverCandidate = state.handoverCandidate,
+                    onExecuteHandover = onExecuteHandover,
+                    onDismissHandover = onDismissHandover,
                 )
                 WorkspaceTab.FILES -> FilesTab(
                     files = state.workspaceFiles,
@@ -7171,6 +7178,9 @@ private fun ChatTab(
     readOnly: Boolean = false,
     readOnlyBlocked: Boolean = false,
     onContinueHere: () -> Unit = {},
+    handoverCandidate: HandoverCandidate? = null,
+    onExecuteHandover: () -> Unit = {},
+    onDismissHandover: () -> Unit = {},
 ) {
     val view = LocalView.current
     // Keep the screen on while the selected agent is working in this chat. Released automatically
@@ -7340,6 +7350,77 @@ private fun ChatTab(
                                 onOpen = null,
                                 onRemove = { onRemoveAttachment(attachment.id) },
                             )
+                        }
+                    }
+                }
+
+                // Agent Handover Banner (Safe Context Continuity)
+                val handover = handoverCandidate
+                if (handover != null && !isRunning) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.85f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Icon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = "Handover",
+                                        modifier = Modifier.size(15.dp),
+                                        tint = MaterialTheme.colorScheme.tertiary,
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = "Handover to ${handover.targetAgent.title}",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                    )
+                                }
+                                IconButton(
+                                    onClick = onDismissHandover,
+                                    modifier = Modifier.size(20.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Dismiss",
+                                        tint = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(14.dp),
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(3.dp))
+                            Text(
+                                text = "${handover.failedAgent.title} stopped: ${handover.failedReason.take(80)}. Tap below to resume execution without re-entering instructions.",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.85f),
+                                lineHeight = 15.sp,
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Button(
+                                    onClick = onExecuteHandover,
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                ) {
+                                    Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Resume with ${handover.targetAgent.title}", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
                         }
                     }
                 }

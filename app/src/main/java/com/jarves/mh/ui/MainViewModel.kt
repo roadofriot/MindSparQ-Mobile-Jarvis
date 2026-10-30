@@ -284,6 +284,14 @@ private data class ImportedZipProject(
     val sourceAttachment: ChatAttachment,
 )
 
+data class HandoverCandidate(
+    val prompt: String,
+    val failedAgent: AgentKind,
+    val failedReason: String,
+    val targetAgent: AgentKind,
+    val targetProvider: ProviderProfile,
+)
+
 data class AppUiState(
     val startupStage: StartupStage = StartupStage.CHECKING,
     val startupProgress: Float = 0f,
@@ -349,6 +357,7 @@ data class AppUiState(
     val isRunning: Boolean = false,
     val queuedFollowUps: List<QueuedFollowUp> = emptyList(),
     val activeSessionId: String? = null,
+    val handoverCandidate: HandoverCandidate? = null,
     val toastMessage: String? = null,
     val projectTerminalLines: List<TerminalOutputLine> = emptyList(),
     val projectTerminalLiveOutput: String = "",
@@ -5516,6 +5525,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 is RuntimeEvent.SessionFailed -> {
                     val finishedAt = System.currentTimeMillis()
                     val displayReason = localizedFailureReason(event.reason)
+                    val failedPrompt = activeRuntimeRequest?.prompt.orEmpty().ifBlank { _state.value.currentTaskRequest.orEmpty() }
+                    val currentAgent = current.agentKind
+                    val alternateAgent = when {
+                        currentAgent == AgentKind.DEEPSEEK_HARNESS && installer.isAgentInstalled(AgentKind.CLAUDE_CODE) -> AgentKind.CLAUDE_CODE
+                        currentAgent == AgentKind.DEEPSEEK_HARNESS && installer.isAgentInstalled(AgentKind.ANTIGRAVITY) -> AgentKind.ANTIGRAVITY
+                        currentAgent == AgentKind.CLAUDE_CODE && installer.isAgentInstalled(AgentKind.DEEPSEEK_HARNESS) -> AgentKind.DEEPSEEK_HARNESS
+                        currentAgent == AgentKind.ANTIGRAVITY && installer.isAgentInstalled(AgentKind.DEEPSEEK_HARNESS) -> AgentKind.DEEPSEEK_HARNESS
+                        else -> null
+                    }
+                    val candidate = if (failedPrompt.isNotBlank() && alternateAgent != null) {
+                        val targetProfile = preferences.loadProvider(vault, alternateAgent)
+                        HandoverCandidate(
+                            prompt = failedPrompt,
+                            failedAgent = currentAgent,
+                            failedReason = displayReason,
+                            targetAgent = alternateAgent,
+                            targetProvider = targetProfile,
+                        )
+                    } else null
                     attachTaskDuration(
                         finishWorkSegment(
                             appendWorkItem(current, ActivityItem("Task stopped", displayReason)),
@@ -5526,6 +5554,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         isRunning = false,
                         activeSessionId = null,
                         pendingApproval = null,
+                        handoverCandidate = candidate,
                         toastMessage = displayReason.takeIf {
                             event.reason.contains("user not found", true) ||
                                 event.reason.contains("API key", true) ||
@@ -5644,8 +5673,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // 3. Multi-provider fallback if all keys for active provider are exhausted
-        val fallbackCandidates = listOf(ProviderKind.GEMINI, ProviderKind.LLM_ROUTER, ProviderKind.DEEPSEEK)
-            .filter { it != request.provider.kind && vault.get(it.name).isNullOrBlank().not() }
+        val fallbackCandidates = listOf(
+            ProviderKind.GEMINI,
+            ProviderKind.LLM_ROUTER,
+            ProviderKind.NVIDIA_NIM,
+            ProviderKind.DEEPSEEK,
+            ProviderKind.OLLAMA,
+        ).filter {
+            it != request.provider.kind && (it == ProviderKind.OLLAMA || vault.get(it.name).isNullOrBlank().not())
+        }
         val nextProviderKind = fallbackCandidates.firstOrNull()
         if (nextProviderKind != null) {
             val nextProfile = preferences.loadProvider(vault, current.agentKind).copy(kind = nextProviderKind)
@@ -5673,6 +5709,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         return false
+    }
+
+    fun handoverTask() {
+        val candidate = _state.value.handoverCandidate ?: return
+        _state.update { it.copy(handoverCandidate = null) }
+        preferences.agentKind = candidate.targetAgent.stableId
+        preferences.saveProvider(candidate.targetProvider, candidate.targetAgent)
+        _state.update {
+            it.copy(
+                agentKind = candidate.targetAgent,
+                provider = candidate.targetProvider,
+                toastMessage = "Handing over to ${candidate.targetAgent.title}...",
+                liveProcess = it.liveProcess + ActivityItem("Agent Handover", "Continuing task with ${candidate.targetAgent.title}.", true),
+            )
+        }
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(200)
+            sendPrompt(candidate.prompt)
+        }
+    }
+
+    fun dismissHandover() {
+        _state.update { it.copy(handoverCandidate = null) }
     }
 
     /**

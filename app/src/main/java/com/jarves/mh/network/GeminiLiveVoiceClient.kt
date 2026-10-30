@@ -10,11 +10,38 @@ import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 
+sealed interface VoiceIntent {
+    data class SwitchModel(val query: String) : VoiceIntent
+    data class SwitchAgent(val agentId: String) : VoiceIntent
+    data object SwitchOffline : VoiceIntent
+    data object RunBuild : VoiceIntent
+    data class Conversational(val text: String) : VoiceIntent
+}
+
 /**
  * High-performance, natural live conversational client for MindSparQ Jarvis.
  * Directly streams responses from Google Gemini 2.5 Flash / OpenRouter.
  */
 object GeminiLiveVoiceClient {
+
+    fun parseVoiceIntent(spokenText: String): VoiceIntent {
+        val lower = spokenText.trim().lowercase()
+        return when {
+            lower.contains("switch to offline") || lower.contains("switch to ollama") || lower.contains("offline model") ->
+                VoiceIntent.SwitchOffline
+            lower.contains("switch to free") || lower.contains("free model") || lower.contains("free coding") ->
+                VoiceIntent.SwitchModel("free")
+            lower.contains("switch to claude") || lower.contains("use claude") ->
+                VoiceIntent.SwitchAgent("claude-code")
+            lower.contains("switch to deepseek") || lower.contains("use deepseek") ->
+                VoiceIntent.SwitchAgent("deepseek-harness")
+            lower.contains("switch to antigravity") || lower.contains("use antigravity") ->
+                VoiceIntent.SwitchAgent("antigravity")
+            lower.contains("run build") || lower.contains("build app") || lower.contains("build android") ->
+                VoiceIntent.RunBuild
+            else -> VoiceIntent.Conversational(spokenText)
+        }
+    }
 
     private const val GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
     private const val OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
