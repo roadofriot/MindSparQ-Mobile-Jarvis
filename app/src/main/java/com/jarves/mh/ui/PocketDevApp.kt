@@ -70,6 +70,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -247,6 +248,7 @@ import com.jarves.mh.model.ToolRequest
 import com.jarves.mh.model.WorkspaceEntry
 import com.jarves.mh.model.projectSlug
 import com.jarves.mh.runtime.RuntimeExecutionService
+import com.jarves.mh.runtime.SupportedProjectTemplate
 import com.jarves.mh.runtime.RuntimeSetupService
 import com.jarves.mh.runtime.supportsArm64Runtime
 import com.jarves.mh.runtime.AntigravityAuthStatus
@@ -2540,6 +2542,7 @@ private fun RootScreenHost(
                     onOpen = viewModel::openProject,
                     onCreate = viewModel::createProject,
                     onCreateAndroid = viewModel::createAndroidProject,
+                    onCreateTemplatedProject = viewModel::createTemplatedProject,
                     onScaffoldVoiceArchitect = viewModel::scaffoldVoiceArchitectProject,
                     onOpenInFileManager = viewModel::openProjectInFileManager,
                     onCreateQuickProject = viewModel::createQuickProject,
@@ -3587,6 +3590,7 @@ private fun ProjectsScreen(
     onOpen: (Project) -> Unit,
     onCreate: (String) -> Unit,
     onCreateAndroid: (String, AndroidTemplate) -> Unit,
+    onCreateTemplatedProject: (String, SupportedProjectTemplate) -> Unit = { _, _ -> },
     onScaffoldVoiceArchitect: (name: String, template: AndroidTemplate?, prd: String, trd: String, architecture: String, decisions: String) -> Unit,
     onOpenInFileManager: (projectName: String) -> Unit,
     onCreateQuickProject: () -> Unit,
@@ -3623,6 +3627,7 @@ private fun ProjectsScreen(
     var repositorySearch by rememberSaveable { mutableStateOf("") }
     var name by rememberSaveable { mutableStateOf("") }
     var androidTemplate by rememberSaveable { mutableStateOf<AndroidTemplate?>(null) }
+    var selectedProjectTemplate by rememberSaveable { mutableStateOf(SupportedProjectTemplate.GENERAL) }
     val projects = state.projects
     val context = LocalContext.current
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -4076,41 +4081,56 @@ private fun ProjectsScreen(
                         }
                     }
                 )
-                Text(stringResource(R.string.project_type), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    AssistChip(
-                        onClick = { androidTemplate = null },
-                        label = { Text(stringResource(R.string.project_type_general)) },
-                        leadingIcon = { if (androidTemplate == null) Icon(Icons.Default.Check, null, Modifier.size(16.dp)) },
-                    )
-                    AssistChip(
-                        onClick = { androidTemplate = AndroidTemplate.COMPOSE },
-                        label = { Text(stringResource(R.string.project_type_compose)) },
-                        leadingIcon = { if (androidTemplate == AndroidTemplate.COMPOSE) Icon(Icons.Default.Check, null, Modifier.size(16.dp)) },
-                    )
-                    AssistChip(
-                        onClick = { androidTemplate = AndroidTemplate.XML },
-                        label = { Text(stringResource(R.string.project_type_xml)) },
-                        leadingIcon = { if (androidTemplate == AndroidTemplate.XML) Icon(Icons.Default.Check, null, Modifier.size(16.dp)) },
-                    )
+                Text("Select Project Template", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                ) {
+                    items(SupportedProjectTemplate.entries) { tmpl ->
+                        val isSelected = selectedProjectTemplate == tmpl
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { selectedProjectTemplate = tmpl },
+                            label = { Text(tmpl.title, fontSize = 11.5.sp) },
+                            leadingIcon = { if (isSelected) Icon(Icons.Default.Check, null, Modifier.size(14.dp)) }
+                        )
+                    }
                 }
-                Text(
-                    stringResource(
-                        when (androidTemplate) {
-                            AndroidTemplate.COMPOSE -> R.string.project_type_compose_desc
-                            AndroidTemplate.XML -> R.string.project_type_xml_desc
-                            null -> R.string.project_type_general_desc
-                        },
-                    ),
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (androidTemplate != null) {
-                    Text(
-                        stringResource(R.string.an_template_info, 28, 36),
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                ) {
+                    Column(Modifier.padding(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                            ) {
+                                Text(
+                                    selectedProjectTemplate.category,
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                )
+                            }
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "Language: ${selectedProjectTemplate.defaultLanguage}",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            selectedProjectTemplate.description,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 15.sp
+                        )
+                    }
                 }
                 if (name.isNotBlank()) {
                     Text(
@@ -4125,10 +4145,10 @@ private fun ProjectsScreen(
         confirmButton = {
             TextButton(
                 onClick = {
-                    androidTemplate?.let { onCreateAndroid(name, it) } ?: onCreate(name)
+                    onCreateTemplatedProject(name, selectedProjectTemplate)
                     showCreate = false
                     name = ""
-                    androidTemplate = null
+                    selectedProjectTemplate = SupportedProjectTemplate.GENERAL
                 },
                 enabled = name.isNotBlank(),
             ) { Text(stringResource(R.string.ws_create)) }

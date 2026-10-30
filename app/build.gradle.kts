@@ -28,7 +28,7 @@ val hasUploadSigning = listOf(
 val runtimeReleaseBaseUrl =
     "https://github.com/mindsparq/MindSparQ-Harness/releases/download/runtime-2026.09.4"
 val appUpdateManifestUrl =
-    "https://github.com/mindsparq/MindSparQ-Harness/releases/latest/download/mindsparq-harness-update.json"
+    "https://github.com/roadofriot/MindSparQ-Mobile-Jarvis/releases/latest/download/mindsparq-update.json"
 val runtimeBundleDir = rootProject.layout.projectDirectory.dir("dist/runtime-bundles")
 val generatedRuntimeAssets = layout.buildDirectory.dir("generated/runtime-assets")
 

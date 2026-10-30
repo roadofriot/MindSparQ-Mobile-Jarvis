@@ -85,7 +85,10 @@ import com.jarves.mh.runtime.AndroidLogLevel
 import com.jarves.mh.runtime.AndroidLogLine
 import com.jarves.mh.runtime.AndroidLogcatState
 import com.jarves.mh.runtime.AndroidProjectTemplateGenerator
+import com.jarves.mh.runtime.MultiPlatformProjectTemplateGenerator
+import com.jarves.mh.runtime.SupportedProjectTemplate
 import com.jarves.mh.runtime.RuntimeExecutionService
+import kotlinx.coroutines.isActive
 import com.jarves.mh.runtime.RuntimeTaskController
 import com.jarves.mh.runtime.androidGradleCommand
 import com.jarves.mh.runtime.diagnoseAndroidBuildFailure
@@ -2246,9 +2249,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             autoPingApi()
-            checkForAppUpdate()
+            startOnlineAutoUpdateWatcher()
         } else {
             showStartupError(result.exceptionOrNull() ?: IllegalStateException(str(R.string.vm_initialization_failed)))
+        }
+    }
+
+    fun startOnlineAutoUpdateWatcher() {
+        viewModelScope.launch(Dispatchers.IO) {
+            checkForAppUpdate(force = true)
+            while (isActive) {
+                delay(15 * 60 * 1000L)
+                checkForAppUpdate(force = true)
+            }
         }
     }
 
@@ -3279,6 +3292,71 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!installer.isStackInstalled(DevStack.ANDROID)) {
             _state.update { it.copy(toastMessage = str(R.string.an_android_project_created_install_tools)) }
         }
+    }
+
+    fun createTemplatedProject(name: String, template: SupportedProjectTemplate) {
+        if (template == SupportedProjectTemplate.COMPOSE) {
+            createAndroidProject(name, AndroidTemplate.COMPOSE)
+            return
+        }
+        if (template == SupportedProjectTemplate.XML) {
+            createAndroidProject(name, AndroidTemplate.XML)
+            return
+        }
+        if (name.isBlank()) return
+        if (_state.value.isRunning || _state.value.projectTerminalRunning || _state.value.androidBuildRunning) {
+            _state.update { it.copy(toastMessage = str(R.string.vm_stop_before_new_project)) }
+            return
+        }
+        val cleanName = name.replace(Regex("\\s+"), " ").trim().take(60)
+        val baseSlug = projectSlug(cleanName)
+        val usedSlugs = _state.value.projects.mapTo(mutableSetOf()) { it.slug }
+        val slug = generateSequence(1) { it + 1 }
+            .map { number -> if (number == 1) baseSlug else "$baseSlug-$number" }
+            .first { it !in usedSlugs }
+        val project = Project(
+            name = cleanName,
+            description = "${template.category} · ${template.title}",
+            language = template.defaultLanguage,
+            slug = slug,
+            type = ProjectType.GENERAL,
+        )
+        configureBridgeRoots(project.id, project.rootPath)
+        val guestRoot = projectGuestRoot(project)
+        _state.update {
+            it.copy(
+                projects = listOf(project) + it.projects,
+                activeProject = project,
+                workspaceVisible = true,
+                messages = listOf(ChatMessage(fromUser = false, text = "⚡ Project created with ${template.title} template! How can I assist you with implementation?")),
+                liveProcess = emptyList(),
+                liveThinking = false,
+                taskStartedAtMillis = null,
+                taskFinishedAtMillis = null,
+                changes = emptyList(),
+                workspaceFiles = emptyList(),
+                androidProjectDetected = false,
+                filesLoading = true,
+                projectTerminalLines = emptyList(),
+                projectTerminalLiveOutput = "",
+                projectTerminalRunning = false,
+                projectTerminalCwd = guestRoot,
+                projectTerminalCommand = null,
+                projectTerminalDraft = null,
+                pendingTerminalCommand = null,
+                suggestedProjectRoot = null,
+                previewReady = false,
+                previewUrl = null,
+            )
+        }
+        preferences.saveProjects(_state.value.projects)
+        val wsDir = File(getApplication<Application>().filesDir, "workspaces/${project.id}").apply { mkdirs() }
+        MultiPlatformProjectTemplateGenerator.generate(wsDir, cleanName, template)
+        ProjectStorageManager.syncWorkspaceToPublic(getApplication(), project.name, wsDir)
+        val firstChat = ProjectChat(title = str(R.string.vm_new_chat))
+        preferences.saveProjectChats(project.id, listOf(firstChat))
+        _state.update { it.copy(projectChats = listOf(firstChat), activeChatId = firstChat.id) }
+        refreshProjectFiles()
     }
 
     fun createQuickProject() {
