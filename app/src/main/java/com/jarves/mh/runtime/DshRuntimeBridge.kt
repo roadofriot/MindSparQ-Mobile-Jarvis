@@ -72,10 +72,11 @@ class DshRuntimeBridge(
         eventBus.emit(RuntimeEvent.SessionStarted(sessionId))
         pushForegroundProgress(R.string.rt_bridge_starting, "DeepSeek Harness")
         val secret = secretFor(provider).orEmpty().ifBlank { localServerPlaceholderKey(provider) }
-        if (secret.isBlank()) {
+        if (secret.isBlank() && provider.kind != ProviderKind.OLLAMA && provider.kind != ProviderKind.CUSTOM) {
             eventBus.emit(RuntimeEvent.SessionFailed(sessionId, "No API key is saved for ${provider.kind.title}."))
             return@withContext sessionId
         }
+        val effectiveSecret = secret.ifBlank { "no-key-required" }
         if (provider.kind == ProviderKind.CLAUDE) {
             eventBus.emit(
                 RuntimeEvent.SessionFailed(
@@ -111,7 +112,7 @@ class DshRuntimeBridge(
             val baseRoute = DshRouteMapper.forProfile(provider)
             openRouterGateway = if (
                 provider.kind == ProviderKind.LLM_ROUTER && provider.openRouterProviders.isNotEmpty()
-            ) OpenRouterRoutingGateway(provider, secret).start() else null
+            ) OpenRouterRoutingGateway(provider, effectiveSecret).start() else null
             val route = if (openRouterGateway != null && baseRoute.custom != null) {
                 baseRoute.copy(custom = baseRoute.custom.copy(baseUrl = openRouterGateway!!.url))
             } else {
@@ -123,7 +124,7 @@ class DshRuntimeBridge(
                 // PocketDev already confines the whole Linux guest with PRoot. Let dsh
                 // use every tool inside that boundary without an unavailable approval UI.
                 "DSH_PERMISSION_MODE" to "danger-full-access",
-                route.keyEnv to secret,
+                route.keyEnv to effectiveSecret,
             )
             if (route.keyEnv != FALLBACK_KEY_ENV) environment.remove(FALLBACK_KEY_ENV)
 

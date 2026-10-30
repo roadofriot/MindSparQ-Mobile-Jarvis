@@ -63,6 +63,7 @@ import com.jarves.mh.runtime.AntigravityAuthStatus
 import com.jarves.mh.runtime.AntigravityRuntimeBridge
 import com.jarves.mh.runtime.NativeSpawnProcess
 import com.jarves.mh.runtime.RuntimeInstallProgress
+import com.jarves.mh.runtime.localServerPlaceholderKey
 import com.jarves.mh.runtime.RuntimeInstaller
 import com.jarves.mh.runtime.RuntimeSetupController
 import com.jarves.mh.runtime.RuntimeSetupService
@@ -438,8 +439,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             keyPoolManager.registerKeys(kind.name, managed)
         }
     }
-    private val claudeRuntime = ClaudeRuntimeBridge(application) { profile -> vault.get(profile.kind.name) }
-    private val dshRuntime = DshRuntimeBridge(application) { profile -> vault.get(profile.kind.name) }
+    private val claudeRuntime = ClaudeRuntimeBridge(application) { profile: ProviderProfile ->
+        val saved = vault.get(profile.kind.name).orEmpty()
+        if (saved.isNotBlank()) {
+            saved
+        } else {
+            val placeholder = localServerPlaceholderKey(profile)
+            if (placeholder.isNotBlank()) placeholder else null
+        }
+    }
+    private val dshRuntime = DshRuntimeBridge(application) { profile: ProviderProfile ->
+        val saved = vault.get(profile.kind.name).orEmpty()
+        if (saved.isNotBlank()) {
+            saved
+        } else {
+            val placeholder = localServerPlaceholderKey(profile)
+            if (placeholder.isNotBlank()) placeholder else null
+        }
+    }
     private val installer = RuntimeInstaller(application)
     private val antigravityRuntime = AntigravityRuntimeBridge(
         application,
@@ -2031,7 +2048,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(initialLanguageSelected = false) }
     }
 
-    fun getSavedApiKey(kind: ProviderKind): String = vault.get(kind.name).orEmpty()
+    fun getSavedApiKey(kind: ProviderKind): String =
+        vault.get(kind.name) ?: if (kind == ProviderKind.OLLAMA || kind == ProviderKind.CUSTOM) "no-key-required" else ""
 
     fun saveGeminiApiKey(secret: String) {
         vault.put(ProviderKind.GEMINI.name, secret.trim())
@@ -2412,7 +2430,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun finishOnboarding(profile: ProviderProfile, secret: String) {
         vault.put(profile.kind.name, secret)
         val saved = profile.copy(
-            hasSecret = secret.isNotBlank() || vault.contains(profile.kind.name),
+            hasSecret = secret.isNotBlank() || vault.contains(profile.kind.name) || profile.kind == ProviderKind.OLLAMA || profile.kind == ProviderKind.CUSTOM,
         )
         preferences.saveProvider(saved, _state.value.agentKind)
         preferences.onboardingComplete = true
@@ -4988,6 +5006,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (_state.value.agentKind == AgentKind.ANTIGRAVITY &&
             _state.value.antigravityAuth.status != AntigravityAuthStatus.SIGNED_IN) {
             val hasApiKey = vault.contains(state.value.provider.kind.name) ||
+                state.value.provider.kind == ProviderKind.OLLAMA ||
+                state.value.provider.kind == ProviderKind.CUSTOM ||
                 vault.contains(ProviderKind.GEMINI.name) ||
                 vault.contains(ProviderKind.LLM_ROUTER.name)
             if (!hasApiKey) {
@@ -5090,7 +5110,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         failedApiKeyIds.clear()
         val runtimeToUse = if (_state.value.agentKind == AgentKind.ANTIGRAVITY &&
             _state.value.provider.kind != ProviderKind.CUSTOM &&
-            vault.contains(_state.value.provider.kind.name) &&
+            (vault.contains(_state.value.provider.kind.name) || _state.value.provider.kind == ProviderKind.OLLAMA) &&
             _state.value.antigravityAuth.status != AntigravityAuthStatus.SIGNED_IN) {
             if (installer.isAgentInstalled(AgentKind.DEEPSEEK_HARNESS)) dshRuntime else claudeRuntime
         } else {

@@ -229,7 +229,7 @@ class AppPreferences(private val context: Context) {
                 kind.defaultBaseUrl
             },
             model = model,
-            hasSecret = vault.contains(kind.name),
+            hasSecret = vault.contains(kind.name) || kind == ProviderKind.OLLAMA || kind == ProviderKind.CUSTOM,
             dshApi = if (useStoredValues) {
                 preferences.getString("${sourcePrefix}dsh_api", defaultDshApiForProvider(kind))
                     ?: defaultDshApiForProvider(kind)

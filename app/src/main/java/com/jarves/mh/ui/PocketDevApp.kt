@@ -7180,6 +7180,17 @@ private fun ChatTab(
         onDispose { view.keepScreenOn = false }
     }
     var prompt by rememberSaveable { mutableStateOf("") }
+    var lastSentPrompt by rememberSaveable { mutableStateOf("") }
+    val userPrompts = remember(messages, lastSentPrompt) {
+        val list = mutableListOf<String>()
+        if (lastSentPrompt.isNotBlank()) list.add(lastSentPrompt)
+        messages.filter { it.fromUser && it.text.isNotBlank() }.map { it.text }.reversed().forEach { msg ->
+            if (!list.contains(msg)) list.add(msg)
+        }
+        list
+    }
+    val candidateToRestore = remember(userPrompts) { userPrompts.firstOrNull() }
+    var historyMenuOpen by remember { mutableStateOf(false) }
     val chatSpeechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             val spokenText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
@@ -7333,6 +7344,46 @@ private fun ChatTab(
                     }
                 }
 
+                // Quick Restore Hint for previous content
+                if (prompt.isBlank() && candidateToRestore != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { prompt = candidateToRestore },
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Restore",
+                                    modifier = Modifier.size(13.dp),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = "Tap to restore: \"${candidateToRestore.replace('\n', ' ').take(45)}${if (candidateToRestore.length > 45) "…" else ""}\"",
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // Mobile Coding Quick Prompt Strip
                 Row(
                     modifier = Modifier
@@ -7468,6 +7519,60 @@ private fun ChatTab(
                             )
                         }
 
+                        if (userPrompts.isNotEmpty()) {
+                            Box {
+                                IconButton(
+                                    onClick = { historyMenuOpen = true },
+                                    modifier = Modifier.size(38.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.History,
+                                        contentDescription = "Previous Messages",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = historyMenuOpen,
+                                    onDismissRequest = { historyMenuOpen = false },
+                                    modifier = Modifier.widthIn(max = 280.dp),
+                                ) {
+                                    Text(
+                                        text = "Previous Prompts (Tap to reuse)",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    )
+                                    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                                    userPrompts.take(6).forEach { pastPrompt ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = pastPrompt,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    fontSize = 12.sp,
+                                                )
+                                            },
+                                            leadingIcon = {
+                                                Icon(
+                                                    Icons.Default.Refresh,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(14.dp),
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                )
+                                            },
+                                            onClick = {
+                                                prompt = pastPrompt
+                                                historyMenuOpen = false
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         Spacer(Modifier.width(2.dp))
 
                         if (isRunning) {
@@ -7502,6 +7607,7 @@ private fun ChatTab(
                                         enabled = canSend,
                                         onClick = {
                                             if (canSend) {
+                                                lastSentPrompt = prompt
                                                 onSend(prompt)
                                                 prompt = ""
                                             }

@@ -112,7 +112,7 @@ class ClaudeRuntimeBridge(
         eventBus.emit(RuntimeEvent.SessionStarted(sessionId))
         pushForegroundProgress(R.string.rt_bridge_starting, "Claude Code")
         val secret = secretFor(provider).orEmpty().ifBlank { localServerPlaceholderKey(provider) }
-        if (secret.isBlank()) {
+        if (secret.isBlank() && provider.kind != ProviderKind.OLLAMA && provider.kind != ProviderKind.CUSTOM) {
             val message = if (provider.kind == ProviderKind.CLAUDE) {
                 "No Claude subscription token is saved. Add one from Agent → AI provider."
             } else {
@@ -121,6 +121,7 @@ class ClaudeRuntimeBridge(
             eventBus.emit(RuntimeEvent.SessionFailed(sessionId, message))
             return@withContext sessionId
         }
+        val effectiveSecret = secret.ifBlank { "no-key-required" }
 
         var formatGateway: LocalFormatGateway? = null
         var openRouterGateway: OpenRouterRoutingGateway? = null
@@ -148,13 +149,13 @@ class ClaudeRuntimeBridge(
             formatGateway = if (provider.kind.protocol in setOf(
                     com.jarves.mh.model.ProviderProtocol.OPENAI_CHAT,
                     com.jarves.mh.model.ProviderProtocol.OPENAI_RESPONSES,
-                )) LocalFormatGateway(provider, secret).start() else null
+                )) LocalFormatGateway(provider, effectiveSecret).start() else null
             openRouterGateway = if (
                 provider.kind == ProviderKind.LLM_ROUTER && provider.openRouterProviders.isNotEmpty()
-            ) OpenRouterRoutingGateway(provider, secret).start() else null
+            ) OpenRouterRoutingGateway(provider, effectiveSecret).start() else null
             val launch = RuntimeLaunchConfigBuilder.build(
                 provider,
-                authToken = secret,
+                authToken = effectiveSecret,
                 localGatewayUrl = formatGateway?.url ?: openRouterGateway?.url,
             )
             Log.d("ClaudeBridge", "Provider: ${provider.kind}, Model: ${provider.model}, BaseUrl: ${provider.baseUrl}")
