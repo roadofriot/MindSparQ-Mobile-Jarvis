@@ -331,6 +331,21 @@ enum class DevStack(
         "Websites and apps with PHP — classic sites and Laravel projects.",
         "php-cli, common extensions, and Composer",
     ),
+    FLUTTER(
+        "Flutter & Dart",
+        "Cross-platform apps for Android, iOS, Desktop (Linux, Mac, Windows), and Web.",
+        "Flutter SDK, Dart SDK, and cross-platform build toolchains",
+    ),
+    GOLANG(
+        "Go (Golang)",
+        "High-performance backend servers, microservices, and fast compiled CLI binaries.",
+        "golang-go, go tools, and package manager",
+    ),
+    RUST(
+        "Rust",
+        "Ultra-fast memory-safe systems programming, WebAssembly, and native CLI tools.",
+        "rustc, cargo, and essential build dependencies",
+    ),
 }
 
 data class ToolRequest(

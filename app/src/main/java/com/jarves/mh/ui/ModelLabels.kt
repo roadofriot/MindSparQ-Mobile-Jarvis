@@ -65,6 +65,9 @@ fun DevStack.labelRes(): Int = when (this) {
     DevStack.ANDROID -> R.string.md_stack_android_label
     DevStack.CPP -> R.string.md_stack_cpp_label
     DevStack.PHP -> R.string.md_stack_php_label
+    DevStack.FLUTTER -> R.string.md_stack_flutter_label
+    DevStack.GOLANG -> R.string.md_stack_golang_label
+    DevStack.RUST -> R.string.md_stack_rust_label
 }
 
 @StringRes
@@ -74,6 +77,9 @@ fun DevStack.descriptionRes(): Int = when (this) {
     DevStack.ANDROID -> R.string.md_stack_android_description
     DevStack.CPP -> R.string.md_stack_cpp_description
     DevStack.PHP -> R.string.md_stack_php_description
+    DevStack.FLUTTER -> R.string.md_stack_flutter_description
+    DevStack.GOLANG -> R.string.md_stack_golang_description
+    DevStack.RUST -> R.string.md_stack_rust_description
 }
 
 @StringRes
@@ -83,6 +89,9 @@ fun DevStack.installsSummaryRes(): Int = when (this) {
     DevStack.ANDROID -> R.string.md_stack_android_installs
     DevStack.CPP -> R.string.md_stack_cpp_installs
     DevStack.PHP -> R.string.md_stack_php_installs
+    DevStack.FLUTTER -> R.string.md_stack_flutter_installs
+    DevStack.GOLANG -> R.string.md_stack_golang_installs
+    DevStack.RUST -> R.string.md_stack_rust_installs
 }
 
 // Composable variants (LocalContext is already localized).

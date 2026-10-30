@@ -2010,6 +2010,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun getSavedApiKey(kind: ProviderKind): String = vault.get(kind.name).orEmpty()
 
+    fun saveGeminiApiKey(secret: String) {
+        vault.put(ProviderKind.GEMINI.name, secret.trim())
+    }
+
     fun getSavedApiKeys(kind: ProviderKind): List<ApiKeyInfo> = vault.list(kind.name)
 
     fun addApiKey(kind: ProviderKind, name: String, secret: String): List<ApiKeyInfo> {

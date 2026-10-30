@@ -747,6 +747,17 @@ class RuntimeInstaller(private val context: Context) {
                 removePath(File(rootfs, "root/.cache/composer"))
                 removePath(File(rootfs, "root/.composer"))
             }
+            DevStack.GOLANG -> {
+                aptRemove(runtime.proot, listOf("golang-go"), 0.45f, onProgress)
+            }
+            DevStack.RUST -> {
+                aptRemove(runtime.proot, listOf("rustc", "cargo"), 0.45f, onProgress)
+            }
+            DevStack.FLUTTER -> {
+                removePath(File(rootfs, "opt/flutter"))
+                removePath(File(rootfs, "usr/local/bin/flutter"))
+                removePath(File(rootfs, "usr/local/bin/dart"))
+            }
         }
 
         writeDevStackState(readDevStackState().apply { put(stack.name, false) })
@@ -868,6 +879,36 @@ class RuntimeInstaller(private val context: Context) {
                 installComposer(proot, from, onProgress)
                 verifyGuest(proot, "php --version && composer --version", str(R.string.rt_install_verify_failed, "PHP"))
             }
+            DevStack.GOLANG -> {
+                aptInstall(
+                    proot,
+                    listOf("golang-go"),
+                    "Installing Go (Golang) compiler and tools",
+                    from,
+                    onProgress,
+                )
+                verifyGuest(proot, "go version", str(R.string.rt_install_verify_failed, "Go"))
+            }
+            DevStack.RUST -> {
+                aptInstall(
+                    proot,
+                    listOf("rustc", "cargo", "build-essential"),
+                    "Installing Rust and Cargo toolchain",
+                    from,
+                    onProgress,
+                )
+                verifyGuest(proot, "rustc --version && cargo --version", str(R.string.rt_install_verify_failed, "Rust"))
+            }
+            DevStack.FLUTTER -> {
+                aptInstall(
+                    proot,
+                    listOf("git", "curl", "unzip", "xz-utils", "zip", "libglu1-mesa"),
+                    "Installing Flutter & Dart dependencies",
+                    from,
+                    onProgress,
+                )
+                installFlutterToolchain(proot, from, to, onProgress)
+            }
         }
         if (!verified) return
         writeDevStackState(readDevStackState().apply { put(stack.name, true) })
@@ -907,6 +948,23 @@ class RuntimeInstaller(private val context: Context) {
         staged.delete()
         Os.chmod(composer.absolutePath, 0b111101101)
         onProgress(RuntimeInstallProgress(str(R.string.rt_install_installing_named, "Composer"), fraction))
+    }
+
+    private suspend fun installFlutterToolchain(
+        proot: File,
+        from: Float,
+        to: Float,
+        onProgress: suspend (RuntimeInstallProgress) -> Unit,
+    ) {
+        val flutterBin = File(rootfs, "usr/local/bin/flutter")
+        val dartBin = File(rootfs, "usr/local/bin/dart")
+        if (flutterBin.exists() && dartBin.exists()) return
+        onProgress(RuntimeInstallProgress("Configuring Flutter SDK and Dart runtime...", from + (to - from) * 0.5f))
+        verifyGuest(
+            proot,
+            "if [ ! -d /opt/flutter ]; then git clone --depth 1 -b stable https://github.com/flutter/flutter.git /opt/flutter; fi && ln -sf /opt/flutter/bin/flutter /usr/local/bin/flutter && ln -sf /opt/flutter/bin/dart /usr/local/bin/dart",
+            str(R.string.rt_install_verify_failed, "Flutter / Dart"),
+        )
     }
 
     private suspend fun installAndroidToolchain(

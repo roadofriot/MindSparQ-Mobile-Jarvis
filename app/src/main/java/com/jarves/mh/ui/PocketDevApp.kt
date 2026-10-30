@@ -1135,6 +1135,21 @@ private fun getDevStackVisuals(stack: DevStack): DevStackVisuals = when (stack) 
         accentColor = Color(0xFF818CF8),
         tag = "php-cli + Composer",
     )
+    DevStack.FLUTTER -> DevStackVisuals(
+        icon = Icons.Default.Speed,
+        accentColor = Color(0xFF02569B),
+        tag = "Flutter SDK + Dart",
+    )
+    DevStack.GOLANG -> DevStackVisuals(
+        icon = Icons.Default.Code,
+        accentColor = Color(0xFF00ADD8),
+        tag = "go compiler + tools",
+    )
+    DevStack.RUST -> DevStackVisuals(
+        icon = Icons.Default.Build,
+        accentColor = Color(0xFFDEA584),
+        tag = "rustc + cargo",
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1597,13 +1612,7 @@ private fun DevStackChoiceRow(
     onClick: () -> Unit,
 ) {
     val visuals = getDevStackVisuals(stack)
-    val conciseDescription = when (stack) {
-        DevStack.WEB -> stringResource(R.string.ws_stack_desc_web)
-        DevStack.PYTHON -> stringResource(R.string.ws_stack_desc_python)
-        DevStack.ANDROID -> stringResource(R.string.ws_stack_desc_android)
-        DevStack.CPP -> stringResource(R.string.ws_stack_desc_cpp)
-        DevStack.PHP -> stringResource(R.string.ws_stack_desc_php)
-    }
+    val conciseDescription = stack.localizedDescription()
 
     Row(
         modifier = Modifier
@@ -2541,6 +2550,8 @@ private fun RootScreenHost(
                     onRefreshGitHub = viewModel::refreshGitHubRepositories,
                     onDisconnectGitHub = viewModel::disconnectGitHub,
                     onConnectGitHubWithToken = viewModel::connectGitHubWithToken,
+                    onGetGeminiApiKey = { viewModel.getSavedApiKey(ProviderKind.GEMINI).ifBlank { viewModel.getSavedApiKey(ProviderKind.LLM_ROUTER) } },
+                    onSaveGeminiApiKey = viewModel::saveGeminiApiKey,
                     onCloneGitHub = viewModel::cloneGitHubRepository,
                     onRenameProject = viewModel::renameProject,
                     onDeleteProject = viewModel::deleteProject,
@@ -3595,6 +3606,8 @@ private fun ProjectsScreen(
     onInstallUpdate: () -> Unit,
     onStartGoogleAuth: () -> Unit = {},
     onGoogleSignOut: () -> Unit = {},
+    onGetGeminiApiKey: () -> String = { "" },
+    onSaveGeminiApiKey: (String) -> Unit = {},
     onPushProjectToGitHub: (Project, String, Boolean, (Boolean, String) -> Unit) -> Unit = { _, _, _, _ -> },
 ) {
     var showCreate by rememberSaveable { mutableStateOf(false) }
@@ -4124,6 +4137,8 @@ private fun ProjectsScreen(
     )
     if (showLiveVoiceArchitect) {
         LiveVoiceProjectArchitectDialog(
+            geminiApiKey = onGetGeminiApiKey(),
+            onSaveGeminiApiKey = onSaveGeminiApiKey,
             onDismiss = { showLiveVoiceArchitect = false },
             onCreateProject = { projName, template, prd, trd, architecture, decisions ->
                 onScaffoldVoiceArchitect(projName, template, prd, trd, architecture, decisions)
