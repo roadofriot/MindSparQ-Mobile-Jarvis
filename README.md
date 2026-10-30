@@ -1,6 +1,6 @@
 <div align="center">
 
-  <img src="assets/readme/logo.svg" alt="MindSparQ Harness Logo" width="104" height="104" style="border-radius: 24px;" />
+  <img src="assets/logo.png" alt="MindSparQ Harness Logo" width="112" height="112" style="border-radius: 24px;" />
 
   # MindSparQ Harness
 
