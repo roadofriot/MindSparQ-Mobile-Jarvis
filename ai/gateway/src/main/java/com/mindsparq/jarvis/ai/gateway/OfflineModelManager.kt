@@ -1,6 +1,12 @@
 package com.mindsparq.jarvis.ai.gateway
 
 import kotlinx.serialization.Serializable
+import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Serializable
 data class OfflineModelInfo(
@@ -13,7 +19,9 @@ data class OfflineModelInfo(
     val isDownloaded: Boolean = false
 )
 
-class OfflineModelManager {
+class OfflineModelManager(
+    private val baseStorageDir: File? = null
+) {
 
     private val catalog = listOf(
         OfflineModelInfo(
@@ -52,6 +60,20 @@ class OfflineModelManager {
 
     private val downloadedModelIds = mutableSetOf<String>()
 
+    init {
+        baseStorageDir?.let { dir ->
+            val modelsDir = File(dir, "models")
+            if (modelsDir.exists() && modelsDir.isDirectory) {
+                catalog.forEach { model ->
+                    val file = File(modelsDir, "${model.id}.gguf")
+                    if (file.exists() && file.length() > 1_000_000L) {
+                        downloadedModelIds.add(model.id)
+                    }
+                }
+            }
+        }
+    }
+
     fun getModelsForDevice(deviceRamGb: Int): List<OfflineModelInfo> {
         return catalog.map { it.copy(isDownloaded = downloadedModelIds.contains(it.id)) }
     }
@@ -67,9 +89,66 @@ class OfflineModelManager {
 
     fun deleteModel(modelId: String) {
         downloadedModelIds.remove(modelId)
+        baseStorageDir?.let { dir ->
+            val target = File(File(dir, "models"), "$modelId.gguf")
+            if (target.exists()) target.delete()
+        }
     }
 
     fun isDownloaded(modelId: String): Boolean = downloadedModelIds.contains(modelId)
+
+    fun getModelFile(modelId: String): File? {
+        val dir = baseStorageDir ?: return null
+        val target = File(File(dir, "models"), "$modelId.gguf")
+        return if (target.exists() && target.length() > 0) target else null
+    }
+
+    suspend fun downloadModel(
+        modelId: String,
+        onProgress: (bytesDownloaded: Long, totalBytes: Long) -> Unit
+    ): Result<File> = withContext(Dispatchers.IO) {
+        val modelInfo = catalog.find { it.id == modelId }
+            ?: return@withContext Result.failure(IllegalArgumentException("Unknown model: $modelId"))
+
+        val targetDir = baseStorageDir?.let { File(it, "models") } ?: File("/tmp/mindsparq-models")
+        if (!targetDir.exists()) targetDir.mkdirs()
+
+        val destFile = File(targetDir, "${modelInfo.id}.gguf")
+        val partFile = File(targetDir, "${modelInfo.id}.gguf.part")
+
+        try {
+            val url = URL(modelInfo.downloadUrl)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.connectTimeout = 15_000
+            connection.readTimeout = 30_000
+            connection.connect()
+
+            val totalBytes = connection.contentLengthLong.takeIf { it > 0 } ?: modelInfo.sizeBytes
+            var bytesReadTotal = 0L
+
+            connection.inputStream.use { input ->
+                FileOutputStream(partFile).use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    var count: Int
+                    while (input.read(buffer).also { count = it } != -1) {
+                        output.write(buffer, 0, count)
+                        bytesReadTotal += count
+                        onProgress(bytesReadTotal, totalBytes)
+                    }
+                }
+            }
+
+            if (partFile.renameTo(destFile)) {
+                markDownloaded(modelId)
+                Result.success(destFile)
+            } else {
+                Result.failure(IllegalStateException("Could not rename part file to ${destFile.name}"))
+            }
+        } catch (e: Exception) {
+            if (partFile.exists()) partFile.delete()
+            Result.failure(e)
+        }
+    }
 }
 
 class HybridRouteManager(

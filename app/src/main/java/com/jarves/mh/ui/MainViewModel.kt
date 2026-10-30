@@ -2073,6 +2073,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    val offlineModelManager = com.mindsparq.jarvis.ai.gateway.OfflineModelManager(
+        baseStorageDir = getApplication<Application>().filesDir
+    )
+
+    fun downloadOfflineModel(modelId: String, onProgress: (Float) -> Unit, onComplete: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val result = offlineModelManager.downloadModel(modelId) { current, total ->
+                val progress = if (total > 0) (current.toFloat() / total.toFloat()).coerceIn(0f, 1f) else 0f
+                onProgress(progress)
+            }
+            onComplete(result.isSuccess)
+        }
+    }
+
+    fun deleteOfflineModel(modelId: String) {
+        offlineModelManager.deleteModel(modelId)
+    }
+
     /** Keeps both agent bridges mapped to the same workspace root; the active one is used. */
     private fun configureBridgeRoots(projectId: String, rootPath: String) {
         claudeRuntime.configureProjectRoot(projectId, rootPath)

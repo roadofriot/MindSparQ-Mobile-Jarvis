@@ -130,6 +130,8 @@ import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.BatterySaver
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Preview
 import androidx.compose.material.icons.filled.Refresh
@@ -311,6 +313,7 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val projectsListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+    var showUnifiedAiSheet by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(state.toastMessage) {
         state.toastMessage?.let { message ->
             Toast.makeText(context, message, Toast.LENGTH_LONG).show()
@@ -474,8 +477,47 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             onCancelAndroidBuild = viewModel::cancelAndroidBuild,
             onCleanAndroid = viewModel::cleanAndroidProject,
             onInstallAndroidTools = { viewModel.installDevStack(DevStack.ANDROID) },
+            onOpenAiHub = { showUnifiedAiSheet = true },
         )
-        else -> RootScreenHost(state, viewModel, projectsListState)
+        else -> RootScreenHost(
+            state = state,
+            viewModel = viewModel,
+            projectsListState = projectsListState,
+            onOpenAiHub = { showUnifiedAiSheet = true },
+        )
+    }
+
+    if (showUnifiedAiSheet) {
+        UnifiedAiProviderSheet(
+            state = state,
+            onDismiss = { showUnifiedAiSheet = false },
+            onSelectProvider = { providerKind ->
+                val profile = ProviderProfile(kind = providerKind)
+                val currentKey = viewModel.getSavedApiKey(providerKind)
+                viewModel.updateProvider(profile, currentKey)
+            },
+            onSelectModel = { modelName ->
+                val currentProfile = state.provider.copy(model = modelName)
+                val currentKey = viewModel.getSavedApiKey(currentProfile.kind)
+                viewModel.updateProvider(currentProfile, currentKey)
+            },
+            onSaveProvider = { profile, key ->
+                viewModel.updateProvider(profile, key)
+            },
+            onPing = viewModel::pingApi,
+            getSavedApiKeys = viewModel::getSavedApiKeys,
+            onAddApiKey = viewModel::addApiKey,
+            onActivateApiKey = viewModel::activateApiKey,
+            onRemoveApiKey = viewModel::removeApiKey,
+            onDiscoverModels = viewModel::discoverModels,
+            isModelDownloaded = { modelId -> viewModel.offlineModelManager.isDownloaded(modelId) },
+            onDownloadOfflineModel = { modelId, onProgress, onComplete ->
+                viewModel.downloadOfflineModel(modelId, onProgress, onComplete)
+            },
+            onDeleteOfflineModel = { modelId ->
+                viewModel.deleteOfflineModel(modelId)
+            },
+        )
     }
 }
 
@@ -2472,6 +2514,7 @@ private fun RootScreenHost(
     state: AppUiState,
     viewModel: MainViewModel,
     projectsListState: LazyListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() },
+    onOpenAiHub: () -> Unit = {},
 ) {
     val context = LocalContext.current
     var screen by rememberSaveable { mutableStateOf(RootScreen.PROJECTS) }
@@ -2565,6 +2608,7 @@ private fun RootScreenHost(
                     onStartGoogleAuth = viewModel::startAntigravityLogin,
                     onGoogleSignOut = viewModel::logoutAntigravity,
                     onPushProjectToGitHub = viewModel::pushProjectToGitHub,
+                    onOpenAiHub = onOpenAiHub,
                 )
                 RootScreen.AGENT -> AgentScreen(
                     state = state,
@@ -2623,6 +2667,7 @@ private fun RootScreenHost(
                     onRefreshDiagnostics = viewModel::refreshDeveloperDiagnostics,
                     onStopInactiveProcesses = viewModel::stopInactiveDeveloperProcesses,
                     onClearRuntimeCache = viewModel::clearDeveloperRuntimeCache,
+                    onOpenAiHub = onOpenAiHub,
                 )
             }
         }
@@ -3613,6 +3658,7 @@ private fun ProjectsScreen(
     onGetGeminiApiKey: () -> String = { "" },
     onSaveGeminiApiKey: (String) -> Unit = {},
     onPushProjectToGitHub: (Project, String, Boolean, (Boolean, String) -> Unit) -> Unit = { _, _, _, _ -> },
+    onOpenAiHub: () -> Unit = {},
 ) {
     var showCreate by rememberSaveable { mutableStateOf(false) }
     var showLiveVoiceArchitect by rememberSaveable { mutableStateOf(false) }
@@ -3653,6 +3699,48 @@ private fun ProjectsScreen(
                 modifier = Modifier.padding(top = 8.dp),
                 title = { Row(verticalAlignment = Alignment.CenterVertically) { BrandMark(compact = true); Spacer(Modifier.width(9.dp)); Text("MindSparQ Jarvis", fontWeight = FontWeight.Bold) } },
                 actions = {
+                    // AI Engine & Key Pool Chip
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                        modifier = Modifier
+                            .padding(end = 8.dp)
+                            .clickable { onOpenAiHub() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (state.agentKind == AgentKind.ANTIGRAVITY) Icons.Default.SmartToy else Icons.Default.Cloud,
+                                contentDescription = "AI Hub",
+                                modifier = Modifier.size(15.dp),
+                                tint = PocketOrange,
+                            )
+                            Spacer(Modifier.width(5.dp))
+                            Text(
+                                if (state.agentKind == AgentKind.ANTIGRAVITY) "Google CLI" else state.provider.kind.title,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Spacer(Modifier.width(5.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        when (state.apiPingStatus) {
+                                            ApiPingStatus.OK -> Color(0xFF2EA043)
+                                            ApiPingStatus.FAILED -> Color(0xFFE5534B)
+                                            ApiPingStatus.PINGING -> PocketOrange
+                                            ApiPingStatus.IDLE -> Color(0xFF2EA043)
+                                        }
+                                    )
+                            )
+                        }
+                    }
                     val isGoogleOk = state.antigravityAuth.status == AntigravityAuthStatus.SIGNED_IN
                     val isGitHubOk = state.githubAuthStatus == GitHubAuthStatus.CONNECTED
                     Surface(
@@ -3748,6 +3836,67 @@ private fun ProjectsScreen(
                         }
                         TextButton(onClick = { showUserProfile = true }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
                             Text("Manage", fontSize = 12.sp)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+
+                // Unified AI Engine & Failover Vault Banner
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                    modifier = Modifier.fillMaxWidth().clickable { onOpenAiHub() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Surface(
+                                shape = CircleShape,
+                                color = PocketOrange.copy(alpha = 0.15f),
+                                modifier = Modifier.size(28.dp),
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        Icons.Default.AutoAwesome,
+                                        contentDescription = null,
+                                        tint = PocketOrange,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("AI Engine & Failover Vault", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    Spacer(Modifier.width(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = Color(0xFF10B981).copy(alpha = 0.15f),
+                                    ) {
+                                        Text(
+                                            "READY",
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF10B981),
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
+                                Text(
+                                    "${if (state.agentKind == AgentKind.ANTIGRAVITY) "Google Antigravity CLI" else state.provider.kind.title} · ${state.provider.model.ifBlank { "Multi-Key Auto-Failover" }}",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        TextButton(onClick = { onOpenAiHub() }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
+                            Text("Configure", fontSize = 12.sp)
                         }
                     }
                 }
@@ -5144,6 +5293,7 @@ private fun WorkspaceScreen(
     onCancelAndroidBuild: () -> Unit,
     onCleanAndroid: () -> Unit,
     onInstallAndroidTools: () -> Unit,
+    onOpenAiHub: () -> Unit = {},
 ) {
     var exportSelection by remember(state.activeProject?.id) { mutableStateOf(ExportSelection()) }
     var exportSelectionMode by remember(state.activeProject?.id) { mutableStateOf(false) }
@@ -5371,17 +5521,32 @@ private fun WorkspaceScreen(
                             ),
                         )
                         // Agent first so it always stays visible; a long chat title is cut with "…".
-                        Text(
-                            "${if (state.agentKind == AgentKind.ANTIGRAVITY) state.agentKind.localizedTitle() else state.provider.kind.localizedTitle()} · ${activeChat?.localizedTitle() ?: stringResource(R.string.tab_chat)}",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { onOpenAiHub() }
+                        ) {
+                            Text(
+                                "${if (state.agentKind == AgentKind.ANTIGRAVITY) state.agentKind.localizedTitle() else state.provider.kind.localizedTitle()} · ${activeChat?.localizedTitle() ?: stringResource(R.string.tab_chat)}",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Icon(
+                                Icons.Default.Tune,
+                                contentDescription = "AI Settings",
+                                modifier = Modifier.size(11.dp),
+                                tint = PocketOrange
+                            )
+                        }
                     }
                 },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.tab_projects)) } },
                 actions = {
+                    IconButton(onClick = onOpenAiHub) {
+                        Icon(Icons.Default.Tune, "AI Hub", tint = PocketOrange)
+                    }
                     if (isAndroidProject) {
                         IconButton(
                             onClick = { showAndroidBuild = true },
