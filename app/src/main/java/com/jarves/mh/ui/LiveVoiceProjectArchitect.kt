@@ -42,6 +42,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeMute
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -51,8 +53,6 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.SmartToy
-import androidx.compose.material.icons.filled.VolumeMute
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -124,13 +124,13 @@ fun LiveVoiceProjectArchitectDialog(
     var isVoiceMuted by rememberSaveable { mutableStateOf(false) }
     var selectedPlanTab by rememberSaveable { mutableStateOf(0) }
 
-    // TextToSpeech Engine
+    // Natural Human Voice Speech Engine
     var ttsEngine: TextToSpeech? by remember { mutableStateOf(null) }
 
     fun speakAloud(text: String) {
         if (!isVoiceMuted && ttsEngine != null) {
-            val clean = text.replace(Regex("[*#`_]"), "").take(400)
-            ttsEngine?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, "jarvis_reply")
+            val spoken = sanitizeForSpeech(text)
+            ttsEngine?.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "jarvis_reply")
         }
     }
 
@@ -139,14 +139,26 @@ fun LiveVoiceProjectArchitectDialog(
         instance = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 instance?.language = Locale.US
+                runCatching {
+                    // Select highest quality human/neural English voice available
+                    val voiceCandidates = instance?.voices?.filter { it.locale.language == "en" }
+                    val highQualityVoice = voiceCandidates?.firstOrNull { voice ->
+                        !voice.isNetworkConnectionRequired &&
+                        (voice.quality >= android.speech.tts.Voice.QUALITY_HIGH ||
+                         voice.name.contains("neural", ignoreCase = true) ||
+                         voice.name.contains("en-us-x", ignoreCase = true))
+                    } ?: voiceCandidates?.firstOrNull()
+                    if (highQualityVoice != null) {
+                        instance?.voice = highQualityVoice
+                    }
+                    // Natural human speech tempo & warm pitch (Mark-LVI Jarvis cadence)
+                    instance?.setSpeechRate(1.04f)
+                    instance?.setPitch(0.97f)
+                }
                 ttsEngine = instance
                 if (!isVoiceMuted) {
-                    instance?.speak(
-                        "Welcome to MindSparQ Live Voice Studio. I am Jarvis, your technical architect. Tell me your project idea, and let's structure it together.",
-                        TextToSpeech.QUEUE_FLUSH,
-                        null,
-                        "jarvis_welcome"
-                    )
+                    val greeting = "MindSparQ Jarvis online. What are we building today?"
+                    instance?.speak(greeting, TextToSpeech.QUEUE_FLUSH, null, "jarvis_welcome")
                 }
             }
         }
@@ -160,7 +172,7 @@ fun LiveVoiceProjectArchitectDialog(
         mutableStateListOf(
             ArchitectMessage(
                 sender = "AI",
-                text = "Welcome to MindSparQ Live Voice Studio! I am Jarvis, your autonomous technical architect. Tell me your idea, and I'll help you clarify the requirements, tech stack, and user stories. We will generate the complete PRD and TRD before building.",
+                text = "MindSparQ Jarvis online. What are we building today?",
             )
         )
     }
@@ -278,7 +290,7 @@ fun LiveVoiceProjectArchitectDialog(
                             if (isVoiceMuted) ttsEngine?.stop()
                         }) {
                             Icon(
-                                if (isVoiceMuted) Icons.Default.VolumeMute else Icons.Default.VolumeUp,
+                                if (isVoiceMuted) Icons.AutoMirrored.Filled.VolumeMute else Icons.AutoMirrored.Filled.VolumeUp,
                                 contentDescription = "Toggle Voice Reading",
                                 tint = if (isVoiceMuted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                             )
@@ -555,6 +567,24 @@ fun LiveVoiceProjectArchitectDialog(
     }
 }
 
+private fun sanitizeForSpeech(text: String): String {
+    return text
+        .replace(Regex("```[\\s\\S]*?```"), " I have detailed the code specifications in the document. ")
+        .replace(Regex("[*#`_~]"), "")
+        .replace(Regex("[•·-]\\s+"), "")
+        .replace(Regex("\\[([^\\]]+)\\]\\([^\\)]+\\)"), "$1")
+        .replace("PRD", "Product Requirements")
+        .replace("TRD", "Technical Requirements")
+        .replace("API", "A P I")
+        .replace("UI", "U I")
+        .replace("SQLite", "S Q L lite")
+        .replace("SDK", "S D K")
+        .replace(Regex("[\\r\\n]+"), " ")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+        .take(450)
+}
+
 private fun handleUserConversationalTurn(
     userInput: String,
     messages: MutableList<ArchitectMessage>,
@@ -569,9 +599,9 @@ private fun handleUserConversationalTurn(
 
     // 1. Check if user confirmed building after plan is generated
     val lastPlanMessage = messages.findLast { it.sender == "AI" && it.actionType == ArchitectActionType.READY_TO_BUILD }
-    if (lastPlanMessage != null && (lower.contains("proceed") || lower.contains("yes") || lower.contains("build") || lower.contains("start") || lower.contains("agree") || lower.contains("implement"))) {
+    if (lastPlanMessage != null && (lower.contains("proceed") || lower.contains("yes") || lower.contains("build") || lower.contains("start") || lower.contains("agree") || lower.contains("implement") || lower.contains("launch"))) {
         setThinking(false)
-        val confirmation = "⚡ Excellent! Proceeding to build '${lastPlanMessage.suggestedProjectName}'. I am scaffolding the project into your Documents/MindSparQ-Mobile-Jarvis directory, generating PRD, TRD, and architecture files, and launching your workspace now!"
+        val confirmation = "⚡ Launching build for '${lastPlanMessage.suggestedProjectName}'. Scaffolding project into Documents/MindSparQ-Mobile-Jarvis, generating PRD, TRD, and architecture files, and opening workspace."
         messages.add(
             ArchitectMessage(
                 sender = "AI",
@@ -579,7 +609,7 @@ private fun handleUserConversationalTurn(
                 actionType = ArchitectActionType.NONE,
             )
         )
-        speak(confirmation)
+        speak("Initiating build. Creating project files, writing specifications, and launching your workspace now.")
         onCreateProject(
             lastPlanMessage.suggestedProjectName ?: "mindsparq-app",
             lastPlanMessage.suggestedTemplate,
@@ -592,9 +622,9 @@ private fun handleUserConversationalTurn(
 
     // 2. Check if user confirmed generating implementation plan
     val lastProposeMessage = messages.findLast { it.sender == "AI" && it.actionType == ArchitectActionType.PROPOSE_PLAN }
-    if (lastProposeMessage != null && (lower.contains("proceed") || lower.contains("yes") || lower.contains("plan") || lower.contains("generate") || lower.contains("create") || lower.contains("sure") || lower.contains("ok"))) {
+    if (lastProposeMessage != null && (lower.contains("proceed") || lower.contains("yes") || lower.contains("plan") || lower.contains("generate") || lower.contains("create") || lower.contains("sure") || lower.contains("ok") || lower.contains("draft"))) {
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
-            delay(800) // Natural thinking pause
+            delay(600)
             val projectName = lastProposeMessage.suggestedProjectName ?: "mindsparq-app"
             val template = lastProposeMessage.suggestedTemplate
             val (prd, trd, arch) = generateFullTechnicalPlan(projectName, messages.map { "${it.sender}: ${it.text}" }.joinToString("\n"))
@@ -614,16 +644,16 @@ private fun handleUserConversationalTurn(
                 )
             )
             setThinking(false)
-            speak("I have formulated the complete PRD, TRD, and architecture blueprint for $projectName. Review the specification, and when you are ready, say Proceed or tap Build Application.")
+            speak("Blueprint synthesized for $projectName. Review the specifications above. When you are ready to start building the code, say proceed.")
         }
         return
     }
 
     // 3. Multi-turn Conversational Discovery & Architecture Interview
     kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
-        delay(700)
+        delay(600)
         val userTurnCount = messages.count { it.sender == "USER" }
-        val (aiResponse, slug, template, shouldProposePlan) = generateConversationalInterviewTurn(
+        val (aiResponse, aiSpeech, slug, template, shouldProposePlan) = generateConversationalInterviewTurn(
             currentInput = userInput,
             turnCount = userTurnCount,
             fullConversation = messages.toList()
@@ -639,7 +669,7 @@ private fun handleUserConversationalTurn(
             )
         )
         setThinking(false)
-        speak(aiResponse)
+        speak(aiSpeech)
     }
 }
 
@@ -647,7 +677,7 @@ private fun generateConversationalInterviewTurn(
     currentInput: String,
     turnCount: Int,
     fullConversation: List<ArchitectMessage>,
-): Quadruple<String, String, AndroidTemplate?, Boolean> {
+): Quintuple<String, String, String, AndroidTemplate?, Boolean> {
     val lower = currentInput.lowercase()
 
     // Determine template from context
@@ -661,44 +691,58 @@ private fun generateConversationalInterviewTurn(
     // Extract smart project slug
     val words = currentInput.replace(Regex("[^a-zA-Z0-9 ]"), "")
         .split(" ")
-        .filter { it.length > 2 && it.lowercase() !in listOf("the", "app", "want", "make", "create", "build", "with", "for", "please", "can", "you", "like", "need") }
+        .filter { it.length > 2 && it.lowercase() !in listOf("the", "app", "want", "make", "create", "build", "with", "for", "please", "can", "you", "like", "need", "that", "this", "also") }
         .take(3)
         .joinToString("-") { it.lowercase() }
     val slug = if (words.isNotBlank()) words else "mindsparq-project"
 
-    // If user explicitly asks to plan or we have had 2+ turns of discussion
-    val userExplicitlyWantsPlan = lower.contains("plan") || lower.contains("proceed") || lower.contains("done") || lower.contains("create") || lower.contains("start")
+    val userExplicitlyWantsPlan = lower.contains("plan") || lower.contains("proceed") || lower.contains("done") || lower.contains("create") || lower.contains("start") || lower.contains("draft")
 
     if (turnCount >= 2 || userExplicitlyWantsPlan) {
-        val proposal = buildString {
-            append("I have a clear, comprehensive understanding of **$slug**!\n\n")
+        val proposalText = buildString {
+            append("Architecture locked in for **$slug**:\n\n")
             append("• **Platform**: ${if (template != null) "Native Android (Jetpack Compose / Kotlin)" else "Full-Stack Modular Application"}\n")
-            append("• **Key Capabilities**: Core state management, local database persistence, reactive UI, and API integration hooks.\n\n")
-            append("I am ready to formulate the complete **PRD (Product Requirements Document)**, **TRD (Technical Requirements Document)**, and **Architecture Blueprint**. Shall I proceed with generating the implementation plan?")
+            append("• **Data Layer**: Offline-first Room persistence & encrypted storage\n")
+            append("• **Architecture**: Unidirectional Data Flow with MVI & StateFlow\n\n")
+            append("I have enough context to generate the complete **PRD**, **TRD**, and **Architecture Blueprint**. Shall I draft the implementation plan?")
         }
-        return Quadruple(proposal, slug, template, true)
+        val proposalSpeech = "Architecture locked in for $slug. I have enough context to synthesize the complete product requirements, technical specifications, and architecture blueprint. Shall I draft the implementation plan?"
+        return Quintuple(proposalText, proposalSpeech, slug, template, true)
     }
 
-    // Dynamic, human-like technical interview question
-    val response = when {
-        lower.contains("crypto") || lower.contains("finance") || lower.contains("money") -> {
-            "That's a high-impact financial concept! For **$slug**, will you be connecting to public market APIs (like CoinGecko or Binance) with real-time price caching, or tracking private balances with local SQLite encryption? Also, do you prefer an OLED dark theme with financial candlestick charts?"
+    // Natural human engineer interview questions (Mark-LVI cadence)
+    val (uiText, speechText) = when {
+        lower.contains("store") || lower.contains("shop") || lower.contains("commerce") || lower.contains("delivery") || lower.contains("food") -> {
+            "Understood. For **$slug**, will this require real-time order tracking with WebSockets, or local cart persistence with offline-first Room database? Also, what's your preferred theme — Obsidian Dark OLED or clean light?" to
+            "Understood. For $slug, will this require real-time order tracking with web sockets, or local cart persistence and offline database? And what is your preferred theme?"
+        }
+        lower.contains("crypto") || lower.contains("finance") || lower.contains("money") || lower.contains("wallet") -> {
+            "Understood. For **$slug**, should we connect public market price feeds (CoinGecko) with local caching, or track private balances with encrypted SQLite? And do you want interactive candlestick charts?" to
+            "Understood. For $slug, should we connect public market price feeds with local caching, or track private balances with encrypted storage? And do you want interactive charts?"
+        }
+        lower.contains("ai") || lower.contains("llm") || lower.contains("bot") || lower.contains("chatgpt") || lower.contains("model") -> {
+            "Understood. For **$slug**, will we integrate local device models via Ollama, or stream tokens from Gemini and OpenRouter with markdown rendering?" to
+            "Understood. For $slug, will we integrate local device models, or stream tokens from Gemini and OpenRouter with markdown rendering?"
         }
         lower.contains("game") || lower.contains("play") -> {
-            "A gaming project sounds exciting! For **$slug**, are you aiming for a 2D canvas-based loop (smooth 60fps animations) or a turn-based interactive state machine? What are the core winning rules or mechanics?"
+            "Understood. For **$slug**, are you aiming for a 60 FPS canvas game loop, or turn-based interactive state machine logic?" to
+            "Understood. For $slug, are you aiming for a 60 frames per second canvas game loop, or turn-based state machine logic?"
         }
         lower.contains("chat") || lower.contains("social") || lower.contains("message") -> {
-            "Real-time social communication! For **$slug**, should we architect local peer-to-peer WebSocket messaging, or cloud-backed synchronization with end-to-end message encryption?"
+            "Understood. For **$slug**, should we architect local peer-to-peer WebSocket messaging, or cloud-backed synchronization with end-to-end message encryption?" to
+            "Understood. For $slug, should we architect local peer to peer web socket messaging, or cloud synchronization with message encryption?"
         }
         lower.contains("task") || lower.contains("todo") || lower.contains("note") || lower.contains("productivity") -> {
-            "A productivity powerhouse! For **$slug**, should we include recurring alarms, category tagging, and offline-first Room database sync so it works completely without internet?"
+            "Understood. For **$slug**, should we include recurring background alarms and offline-first Room database sync so it works completely without internet?" to
+            "Understood. For $slug, should we include recurring background alarms and offline database sync so it works completely without internet?"
         }
         else -> {
-            "That's a very compelling idea. To structure the technical architecture for **$slug**, what are the top 2 features users will interact with first, and do you prefer an offline-first local database or external cloud APIs?"
+            "Understood. To get the architecture right for **$slug**, what are the top 2 features users will interact with first, and do you prefer offline-first local storage or external cloud services?" to
+            "Understood. To get the architecture right for $slug, what are the top 2 features users will interact with first, and do you prefer offline local storage or external cloud services?"
         }
     }
 
-    return Quadruple(response, slug, template, false)
+    return Quintuple(uiText, speechText, slug, template, false)
 }
 
 private fun generateFullTechnicalPlan(projectName: String, contextHistory: String): Triple<String, String, String> {
@@ -800,3 +844,4 @@ $projectName/
 }
 
 data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+data class Quintuple<A, B, C, D, E>(val first: A, val second: B, val third: C, val fourth: D, val fifth: E)

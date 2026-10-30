@@ -3713,6 +3713,112 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun pushProjectToGitHub(
+        project: Project,
+        repoName: String,
+        isPrivate: Boolean,
+        onResult: (Boolean, String) -> Unit = { _, _ -> },
+    ) {
+        if (_state.value.githubAuthStatus != GitHubAuthStatus.CONNECTED) {
+            onResult(false, str(R.string.ws_github_signin))
+            return
+        }
+        val githubUser = _state.value.githubLogin ?: runCatching { githubAccountLogin() }.getOrNull()
+        if (githubUser.isNullOrBlank()) {
+            onResult(false, "GitHub account login not found")
+            return
+        }
+
+        val targetRepoName = repoName.trim().replace(Regex("[^a-zA-Z0-9._-]"), "-").ifBlank { project.slug }
+        _state.update { it.copy(gitCloneRunning = true, gitCloneMessage = "Publishing to GitHub: $targetRepoName...") }
+
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val runtime = installer.installedRuntime()
+                    val workspace = projectWorkspaceRoot(project)
+                    val ghCli = RuntimeInstaller.GITHUB_CLI_GUEST_PATH
+                    val env = githubCliEnvironment() + mapOf(
+                        "GIT_TERMINAL_PROMPT" to "0",
+                        "GIT_COMMITTER_NAME" to githubUser,
+                        "GIT_COMMITTER_EMAIL" to "$githubUser@users.noreply.github.com",
+                        "GIT_AUTHOR_NAME" to githubUser,
+                        "GIT_AUTHOR_EMAIL" to "$githubUser@users.noreply.github.com",
+                    )
+
+                    fun runWorkspaceCmd(cmd: String): Pair<Int, String> {
+                        val outputFile = File(getApplication<Application>().cacheDir, "gh-push-${System.nanoTime()}.log")
+                        return try {
+                            val proc = installer.process(
+                                runtime.proot,
+                                runtime.rootfs,
+                                workspace,
+                                env,
+                                listOf("/usr/bin/bash", "-lc", cmd),
+                                projectGuestRoot(project),
+                                outputFile = outputFile,
+                            )
+                            val exit = proc.waitFor()
+                            val out = sanitizeTerminalOutput(outputFile.readTailText(64 * 1024)).trim()
+                            exit to out
+                        } finally {
+                            outputFile.delete()
+                        }
+                    }
+
+                    // 1. Setup git credentials helper with gh
+                    runWorkspaceCmd("$ghCli auth setup-git")
+
+                    // 2. Initialize git if repository doesn't have .git
+                    val (isGitExit, _) = runWorkspaceCmd("git rev-parse --is-inside-work-tree")
+                    if (isGitExit != 0) {
+                        runWorkspaceCmd("git init -b main")
+                    }
+                    runWorkspaceCmd("git config user.name \"$githubUser\"")
+                    runWorkspaceCmd("git config user.email \"$githubUser@users.noreply.github.com\"")
+
+                    // 3. Stage and commit all project files
+                    runWorkspaceCmd("git add -A")
+                    runWorkspaceCmd("git commit -m \"Initial commit from MindSparQ Jarvis\"")
+
+                    // 4. Create repo and push
+                    val (remoteExit, remotes) = runWorkspaceCmd("git remote get-url origin")
+                    val pushExit: Int
+                    val pushOutput: String
+                    if (remoteExit == 0 && remotes.isNotBlank()) {
+                        val (pExit, pOut) = runWorkspaceCmd("git push -u origin HEAD")
+                        pushExit = pExit
+                        pushOutput = pOut
+                    } else {
+                        val visibilityFlag = if (isPrivate) "--private" else "--public"
+                        val (createExit, createOut) = runWorkspaceCmd("$ghCli repo create $targetRepoName $visibilityFlag --source=. --remote=origin --push")
+                        if (createExit != 0) {
+                            runWorkspaceCmd("git remote add origin https://github.com/$githubUser/$targetRepoName.git")
+                            val (pExit, pOut) = runWorkspaceCmd("git push -u origin HEAD")
+                            pushExit = pExit
+                            pushOutput = if (pExit == 0) createOut else "$createOut\n$pOut"
+                        } else {
+                            pushExit = createExit
+                            pushOutput = createOut
+                        }
+                    }
+                    check(pushExit == 0) { pushOutput.ifBlank { "Git push failed with exit code $pushExit" } }
+                    "https://github.com/$githubUser/$targetRepoName"
+                }
+            }
+            _state.update { it.copy(gitCloneRunning = false, gitCloneMessage = null) }
+            result.onSuccess { url ->
+                _state.update { it.copy(toastMessage = "Published to GitHub: $url") }
+                refreshGitHubRepositories()
+                onResult(true, url)
+            }.onFailure { err ->
+                val errorMsg = err.message?.lineSequence()?.lastOrNull { it.isNotBlank() } ?: "Push failed"
+                _state.update { it.copy(toastMessage = "GitHub Push failed: $errorMsg") }
+                onResult(false, errorMsg)
+            }
+        }
+    }
+
     private suspend fun refreshGitHubConnection() = withContext(Dispatchers.IO) {
         if (!installer.isGitHubCliInstalled()) return@withContext
         val login = runCatching { githubAccountLogin() }.getOrNull()

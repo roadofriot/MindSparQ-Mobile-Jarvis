@@ -112,7 +112,8 @@ import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Image
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Key
@@ -173,6 +174,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Tab
@@ -218,6 +220,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jarves.mh.model.ActivityItem
@@ -2543,6 +2547,9 @@ private fun RootScreenHost(
                     onPing = viewModel::pingApi,
                     onToggleTheme = viewModel::toggleTheme,
                     onInstallUpdate = viewModel::installAppUpdate,
+                    onStartGoogleAuth = viewModel::startAntigravityLogin,
+                    onGoogleSignOut = viewModel::logoutAntigravity,
+                    onPushProjectToGitHub = viewModel::pushProjectToGitHub,
                 )
                 RootScreen.AGENT -> AgentScreen(
                     state = state,
@@ -3584,9 +3591,15 @@ private fun ProjectsScreen(
     onPing: () -> Unit,
     onToggleTheme: () -> Unit,
     onInstallUpdate: () -> Unit,
+    onStartGoogleAuth: () -> Unit = {},
+    onGoogleSignOut: () -> Unit = {},
+    onPushProjectToGitHub: (Project, String, Boolean, (Boolean, String) -> Unit) -> Unit = { _, _, _, _ -> },
 ) {
     var showCreate by rememberSaveable { mutableStateOf(false) }
     var showLiveVoiceArchitect by rememberSaveable { mutableStateOf(false) }
+    var showUserProfile by rememberSaveable { mutableStateOf(false) }
+    var projectToPushToGitHub by remember { mutableStateOf<Project?>(null) }
+    var isGitHubPushing by remember { mutableStateOf(false) }
     var showUpdateDialog by rememberSaveable { mutableStateOf(false) }
     var showGitDialog by rememberSaveable { mutableStateOf(false) }
     var showGitHubDialog by rememberSaveable { mutableStateOf(false) }
@@ -3618,7 +3631,48 @@ private fun ProjectsScreen(
         topBar = {
             TopAppBar(
                 modifier = Modifier.padding(top = 8.dp),
-                title = { Row(verticalAlignment = Alignment.CenterVertically) { BrandMark(compact = true); Spacer(Modifier.width(9.dp)); Text("MindSparQ Harness", fontWeight = FontWeight.Bold) } },
+                title = { Row(verticalAlignment = Alignment.CenterVertically) { BrandMark(compact = true); Spacer(Modifier.width(9.dp)); Text("MindSparQ Jarvis", fontWeight = FontWeight.Bold) } },
+                actions = {
+                    val isGoogleOk = state.antigravityAuth.status == AntigravityAuthStatus.SIGNED_IN
+                    val isGitHubOk = state.githubAuthStatus == GitHubAuthStatus.CONNECTED
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                        modifier = Modifier
+                            .padding(end = 12.dp)
+                            .clickable { showUserProfile = true }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Image(
+                                painter = painterResource(R.drawable.mindsparq_logo),
+                                contentDescription = "Profile",
+                                modifier = Modifier.size(18.dp).clip(CircleShape)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                when {
+                                    isGitHubOk -> "@${state.githubLogin}"
+                                    isGoogleOk -> "Google"
+                                    else -> "Profile"
+                                },
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isGoogleOk || isGitHubOk) Color(0xFF2EA043) else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isGoogleOk || isGitHubOk) Color(0xFF2EA043) else Color(0xFFE5534B))
+                            )
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
             )
         },
@@ -3632,7 +3686,52 @@ private fun ProjectsScreen(
             item {
                 Text(stringResource(R.string.projects_hero_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 Text(stringResource(R.string.projects_hero_desc), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(12.dp))
+
+                // Developer Cloud & GitHub Profile Banner
+                val isGoogleConnected = state.antigravityAuth.status == AntigravityAuthStatus.SIGNED_IN
+                val isGitHubConnected = state.githubAuthStatus == GitHubAuthStatus.CONNECTED
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                    modifier = Modifier.fillMaxWidth().clickable { showUserProfile = true }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Image(
+                                painter = painterResource(R.drawable.mindsparq_logo),
+                                contentDescription = "Logo",
+                                modifier = Modifier.size(28.dp).clip(CircleShape)
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Text("Developer Cloud & GitHub Profile", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        if (isGoogleConnected) "Google: Connected" else "Google: Not linked",
+                                        fontSize = 11.sp,
+                                        color = if (isGoogleConnected) Color(0xFF2EA043) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(" · ", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        if (isGitHubConnected) "@${state.githubLogin}" else "GitHub: Not linked",
+                                        fontSize = 11.sp,
+                                        color = if (isGitHubConnected) Color(0xFF2EA043) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                        TextButton(onClick = { showUserProfile = true }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
+                            Text("Manage", fontSize = 12.sp)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -3918,6 +4017,13 @@ private fun ProjectsScreen(
                         onRename = { onRenameProject(project.id, it) },
                         onDelete = { onDeleteProject(project.id) },
                         onOpenInFileManager = { onOpenInFileManager(project.name) },
+                        onPushToGitHub = {
+                            if (state.githubAuthStatus != GitHubAuthStatus.CONNECTED) {
+                                showGitHubDialog = true
+                            } else {
+                                projectToPushToGitHub = project
+                            }
+                        },
                     )
                 }
             }
@@ -4210,6 +4316,36 @@ private fun ProjectsScreen(
             dismissButton = { if (!installing) TextButton(onClick = { showUpdateDialog = false }) { Text(stringResource(R.string.ws_later)) } },
         )
     }
+
+    if (showUserProfile) {
+        MindSparQUserProfileDialog(
+            state = state,
+            onDismiss = { showUserProfile = false },
+            onStartGoogleAuth = onStartGoogleAuth,
+            onGoogleSignOut = onGoogleSignOut,
+            onStartGitHubLogin = onStartGitHubLogin,
+            onDisconnectGitHub = onDisconnectGitHub,
+            onOpenFileManager = { onOpenInFileManager("MindSparQ-Projects") }
+        )
+    }
+
+    projectToPushToGitHub?.let { targetProject ->
+        PushToGitHubDialog(
+            project = targetProject,
+            githubUser = state.githubLogin,
+            isPushing = isGitHubPushing,
+            onDismiss = { projectToPushToGitHub = null },
+            onPush = { repoName, isPrivate ->
+                isGitHubPushing = true
+                onPushProjectToGitHub(targetProject, repoName, isPrivate) { success, _ ->
+                    isGitHubPushing = false
+                    if (success) {
+                        projectToPushToGitHub = null
+                    }
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -4311,6 +4447,7 @@ private fun ProjectCard(
     onRename: (String) -> Unit,
     onDelete: () -> Unit,
     onOpenInFileManager: () -> Unit,
+    onPushToGitHub: () -> Unit,
 ) {
     var menuOpen by rememberSaveable(project.id) { mutableStateOf(false) }
     var showRename by rememberSaveable(project.id) { mutableStateOf(false) }
@@ -4371,6 +4508,11 @@ private fun ProjectCard(
                         onClick = { menuOpen = false; onOpenInFileManager() },
                     )
                     DropdownMenuItem(
+                        text = { Text("Push to GitHub") },
+                        leadingIcon = { Icon(Icons.Default.Upload, null, tint = Color(0xFF2EA043)) },
+                        onClick = { menuOpen = false; onPushToGitHub() },
+                    )
+                    DropdownMenuItem(
                         text = { Text(stringResource(R.string.ws_rename_project)) },
                         leadingIcon = { Icon(Icons.Default.Edit, null) },
                         onClick = { menuOpen = false; renameText = project.name; showRename = true },
@@ -4401,6 +4543,290 @@ private fun ProjectCard(
             confirmButton = { TextButton(onClick = { onDelete(); showDelete = false }) { Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = { showDelete = false }) { Text(stringResource(R.string.action_cancel)) } },
         )
+    }
+}
+
+@Composable
+private fun PushToGitHubDialog(
+    project: Project,
+    githubUser: String?,
+    isPushing: Boolean,
+    onDismiss: () -> Unit,
+    onPush: (repoName: String, isPrivate: Boolean) -> Unit,
+) {
+    var repoName by rememberSaveable(project.id) { mutableStateOf(project.slug.ifBlank { project.name.lowercase().replace(" ", "-") }) }
+    var isPrivate by rememberSaveable(project.id) { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = { if (!isPushing) onDismiss() },
+        icon = { Icon(Icons.Default.Upload, contentDescription = null, tint = Color(0xFF2EA043), modifier = Modifier.size(28.dp)) },
+        title = { Text("Publish to GitHub", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(
+                    "Publish '${project.name}' directly to your GitHub account (@${githubUser ?: "user"}). Jarvis will initialize the repository, commit all project files, and push to GitHub.",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 18.sp
+                )
+
+                OutlinedTextField(
+                    value = repoName,
+                    onValueChange = { repoName = it },
+                    label = { Text("Repository Name") },
+                    singleLine = true,
+                    enabled = !isPushing,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = !isPushing) { isPrivate = !isPrivate },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Private Repository", fontWeight = FontWeight.Medium, fontSize = 13.5.sp)
+                        Text(
+                            if (isPrivate) "Only you can view this repository" else "Visible to everyone on GitHub",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = isPrivate,
+                        onCheckedChange = { isPrivate = it },
+                        enabled = !isPushing
+                    )
+                }
+
+                if (isPushing) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Pushing to GitHub...", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onPush(repoName, isPrivate) },
+                enabled = repoName.isNotBlank() && !isPushing,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2EA043))
+            ) {
+                Text(if (isPushing) "Pushing..." else "Push to GitHub", color = Color.White, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            if (!isPushing) {
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun MindSparQUserProfileDialog(
+    state: AppUiState,
+    onDismiss: () -> Unit,
+    onStartGoogleAuth: () -> Unit,
+    onGoogleSignOut: () -> Unit,
+    onStartGitHubLogin: () -> Unit,
+    onDisconnectGitHub: () -> Unit,
+    onOpenFileManager: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .padding(vertical = 24.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = Color(0xFF0F141C),
+            border = BorderStroke(1.dp, Color(0xFF1E2638)),
+            tonalElevation = 8.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color.Black.copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.6f)),
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Image(
+                                    painter = painterResource(R.drawable.mindsparq_logo),
+                                    contentDescription = "MindSparQ Logo",
+                                    modifier = Modifier.size(28.dp).clip(CircleShape)
+                                )
+                            }
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text("Developer Profile", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Color(0xFFF0F6FC))
+                            Text("MindSparQ Cloud & Git Identities", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+
+                // Google Account Card
+                val isGoogleConnected = state.antigravityAuth.status == AntigravityAuthStatus.SIGNED_IN
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFF161E2E),
+                    border = BorderStroke(1.dp, if (isGoogleConnected) Color(0xFF2EA043).copy(alpha = 0.4f) else Color(0xFF222F46)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(shape = CircleShape, color = Color.White.copy(alpha = 0.1f), modifier = Modifier.size(32.dp)) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text("G", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF4285F4))
+                                    }
+                                }
+                                Spacer(Modifier.width(10.dp))
+                                Column {
+                                    Text("Google Account", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Color.White)
+                                    Text(
+                                        if (isGoogleConnected) state.antigravityAuth.accountEmail ?: "Signed in" else "Not connected",
+                                        fontSize = 11.sp,
+                                        color = if (isGoogleConnected) Color(0xFF2EA043) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            if (isGoogleConnected) {
+                                TextButton(onClick = onGoogleSignOut) {
+                                    Text("Disconnect", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                                }
+                            } else {
+                                Button(
+                                    onClick = onStartGoogleAuth,
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text("Sign In", fontSize = 12.sp)
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Authenticates official Google Antigravity & Gemini 2.5/3.0 intelligence models.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+
+                // GitHub Account Card
+                val isGitHubConnected = state.githubAuthStatus == GitHubAuthStatus.CONNECTED
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFF161E2E),
+                    border = BorderStroke(1.dp, if (isGitHubConnected) Color(0xFF2EA043).copy(alpha = 0.4f) else Color(0xFF222F46)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(shape = CircleShape, color = Color.White.copy(alpha = 0.1f), modifier = Modifier.size(32.dp)) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Default.Code, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                                Spacer(Modifier.width(10.dp))
+                                Column {
+                                    Text("GitHub Account", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Color.White)
+                                    Text(
+                                        if (isGitHubConnected) "@${state.githubLogin}" else "Not connected",
+                                        fontSize = 11.sp,
+                                        color = if (isGitHubConnected) Color(0xFF2EA043) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            if (isGitHubConnected) {
+                                TextButton(onClick = onDisconnectGitHub) {
+                                    Text("Disconnect", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                                }
+                            } else {
+                                Button(
+                                    onClick = onStartGitHubLogin,
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2EA043))
+                                ) {
+                                    Text("Connect", fontSize = 12.sp, color = Color.White)
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Enables 1-click publishing of created projects directly to your GitHub profile.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+
+                // Public Documents Directory Info
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFF161E2E).copy(alpha = 0.6f),
+                    border = BorderStroke(1.dp, Color(0xFF222F46)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Public Documents Directory", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = Color.White)
+                            Text("Documents/MindSparQ-Mobile-Jarvis", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontFamily = FontFamily.Monospace)
+                        }
+                        IconButton(onClick = onOpenFileManager) {
+                            Icon(Icons.Default.Folder, contentDescription = "Open Folder", tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -7228,7 +7654,7 @@ private fun AttachmentChip(
     onRemove: (() -> Unit)?,
 ) {
     val icon = when {
-        attachment.mimeType.startsWith("image/") -> Icons.Default.Image
+        attachment.mimeType.startsWith("image/") -> Icons.Default.PhotoCamera
         else -> Icons.Default.Description
     }
     Surface(
