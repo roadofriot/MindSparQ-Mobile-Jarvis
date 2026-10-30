@@ -3686,24 +3686,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         githubAuthJob = viewModelScope.launch {
             try {
                 val client = GitHubClient(getApplication())
+                val customClientId = preferences.githubClientId.takeIf(String::isNotBlank)
                 val deviceCode = withContext(Dispatchers.IO) {
-                    client.requestDeviceCode()
+                    if (customClientId != null) client.requestDeviceCode(customClientId) else client.requestDeviceCode()
                 }
 
                 // Immediately update state and copy code to clipboard
                 withContext(Dispatchers.Main) {
                     val clipboard = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
                     clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("GitHub Code", deviceCode.userCode))
+                    // Build auto-fill URL: GitHub supports ?user_code=XXXX-XXXX to pre-fill the code field
+                    val autoFillUrl = buildString {
+                        append(deviceCode.verificationUri.trimEnd('/'))
+                        if (!deviceCode.verificationUri.contains('?')) append("?user_code=") else append("&user_code=")
+                        append(deviceCode.userCode)
+                    }
                     _state.update {
                         it.copy(
                             githubAuthStatus = GitHubAuthStatus.AWAITING_USER,
                             githubUserCode = deviceCode.userCode,
-                            githubVerificationUri = deviceCode.verificationUri,
-                            githubMessage = "Code ${deviceCode.userCode} copied! Enter it on GitHub to link.",
-                            toastMessage = "GitHub Code: ${deviceCode.userCode} copied to clipboard!",
+                            githubVerificationUri = autoFillUrl,
+                            githubMessage = "Code ${deviceCode.userCode} is ready. Tap the button below — GitHub will open with your code pre-filled. Just press Authorize.",
+                            toastMessage = "GitHub Code: ${deviceCode.userCode} — Auto-filling on GitHub!",
                         )
                     }
-                    openExternalUrl(deviceCode.verificationUri)
+                    // Open GitHub with code pre-filled — user just needs to press Authorize
+                    openExternalUrl(autoFillUrl)
                 }
 
                 // Poll for authorization completion in background
@@ -3715,7 +3723,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 withContext(Dispatchers.IO) {
                     while (System.currentTimeMillis() - startTime < timeoutMs) {
                         delay(intervalMs)
-                        when (val poll = client.pollDeviceToken(deviceCode = deviceCode.deviceCode)) {
+                        when (val poll = client.pollDeviceToken(clientId = customClientId ?: GitHubClient.DEFAULT_CLIENT_ID, deviceCode = deviceCode.deviceCode)) {
                             is GitHubTokenPoll.Success -> {
                                 token = poll.accessToken
                                 break

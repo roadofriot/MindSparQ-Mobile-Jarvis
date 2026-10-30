@@ -72,6 +72,11 @@ class AppPreferences(private val context: Context) {
         get() = preferences.getString("github_token", "") ?: ""
         set(value) { preferences.edit().putString("github_token", value).apply() }
 
+    /** Custom GitHub OAuth App Client ID. When blank, uses the shared GitHub CLI client ID. */
+    var githubClientId: String
+        get() = preferences.getString("github_client_id", "") ?: ""
+        set(value) { preferences.edit().putString("github_client_id", value).apply() }
+
     fun saveAgentConversation(agent: AgentKind, projectId: String, chatId: String, conversationId: String?) {
         val key = agentConversationKey(agent, projectId, chatId)
         preferences.edit().apply {

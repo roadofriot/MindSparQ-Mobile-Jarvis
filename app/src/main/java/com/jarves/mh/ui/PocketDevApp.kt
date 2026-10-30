@@ -4399,77 +4399,112 @@ private fun ProjectsScreen(
                         Text(state.githubMessage ?: stringResource(R.string.ws_github_starting))
                     }
                     GitHubAuthStatus.AWAITING_USER -> Column(verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            "Enter this one-time code on GitHub to authorize MindSparQ:",
-                            fontSize = 13.sp,
-                            textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        // Success hint — code is pre-filled
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF2EA043).copy(alpha = 0.15f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    "✅ Code ready — GitHub will open with it pre-filled",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF2EA043),
+                                    textAlign = TextAlign.Center
+                                )
+                                Text(
+                                    "Just press \"Authorize\" when the browser opens",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF2EA043).copy(alpha = 0.8f),
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+
+                        // Large code display — tap to copy
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
                                     state.githubUserCode?.let {
                                         clipboard.setText(AnnotatedString(it))
-                                        Toast.makeText(context, "Code copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Code copied!", Toast.LENGTH_SHORT).show()
                                     }
                                 },
                             shape = RoundedCornerShape(14.dp),
                             color = MaterialTheme.colorScheme.primaryContainer,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                            border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
                         ) {
                             Column(
                                 modifier = Modifier.padding(16.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Text(
+                                    "Your one-time code",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f),
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Spacer(Modifier.height(6.dp))
+                                Text(
                                     state.githubUserCode.orEmpty(),
                                     textAlign = TextAlign.Center,
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 26.sp,
-                                    letterSpacing = 3.sp,
+                                    fontSize = 30.sp,
+                                    letterSpacing = 4.sp,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
                                 Spacer(Modifier.height(4.dp))
-                                Text("Tap to copy code", fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                                    Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Tap to copy", fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f))
+                                }
                             }
                         }
 
+                        // Primary CTA — opens GitHub with code pre-filled
                         Button(
                             onClick = {
-                                state.githubUserCode?.let {
-                                    clipboard.setText(AnnotatedString(it))
-                                    Toast.makeText(context, "Code copied! Opening GitHub...", Toast.LENGTH_SHORT).show()
-                                }
+                                state.githubUserCode?.let { clipboard.setText(AnnotatedString(it)) }
                                 val uri = Uri.parse(state.githubVerificationUri ?: "https://github.com/login/device")
                                 context.startActivity(Intent(Intent.ACTION_VIEW, uri))
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp)
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2EA043))
                         ) {
-                            Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Launch, null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("Copy Code & Open GitHub")
+                            Text("Open GitHub & Authorize", color = Color.White, fontWeight = FontWeight.SemiBold)
                         }
 
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center,
-                            modifier = Modifier.padding(vertical = 4.dp)
+                        // Polling indicator
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                            Spacer(Modifier.width(10.dp))
-                            Text("Waiting for authorization in browser...", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                            ) {
+                                CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(10.dp))
+                                Text("Waiting for you to authorize in browser…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
 
                         OutlinedButton(
                             onClick = onGenerateNewGitHubCode,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(stringResource(R.string.ws_github_new_code))
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(stringResource(R.string.ws_github_new_code), fontSize = 13.sp)
                         }
                     }
                     GitHubAuthStatus.CONNECTED -> Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
