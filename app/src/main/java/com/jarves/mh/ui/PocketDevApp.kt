@@ -2527,6 +2527,8 @@ private fun RootScreenHost(
                     onOpen = viewModel::openProject,
                     onCreate = viewModel::createProject,
                     onCreateAndroid = viewModel::createAndroidProject,
+                    onScaffoldVoiceArchitect = viewModel::scaffoldVoiceArchitectProject,
+                    onOpenInFileManager = viewModel::openProjectInFileManager,
                     onCreateQuickProject = viewModel::createQuickProject,
                     onImportZip = viewModel::importZipProject,
                     onCloneGit = viewModel::clonePublicGitRepository,
@@ -3566,6 +3568,8 @@ private fun ProjectsScreen(
     onOpen: (Project) -> Unit,
     onCreate: (String) -> Unit,
     onCreateAndroid: (String, AndroidTemplate) -> Unit,
+    onScaffoldVoiceArchitect: (name: String, template: AndroidTemplate?, prd: String, trd: String, architecture: String) -> Unit,
+    onOpenInFileManager: (projectName: String) -> Unit,
     onCreateQuickProject: () -> Unit,
     onImportZip: (Uri) -> Unit,
     onCloneGit: (String) -> Unit,
@@ -3913,6 +3917,7 @@ private fun ProjectsScreen(
                         onOpen = { onOpen(project) },
                         onRename = { onRenameProject(project.id, it) },
                         onDelete = { onDeleteProject(project.id) },
+                        onOpenInFileManager = { onOpenInFileManager(project.name) },
                     )
                 }
             }
@@ -4012,12 +4017,8 @@ private fun ProjectsScreen(
     if (showLiveVoiceArchitect) {
         LiveVoiceProjectArchitectDialog(
             onDismiss = { showLiveVoiceArchitect = false },
-            onCreateProject = { projName, template ->
-                if (template != null) {
-                    onCreateAndroid(projName, template)
-                } else {
-                    onCreate(projName)
-                }
+            onCreateProject = { projName, template, prd, trd, architecture ->
+                onScaffoldVoiceArchitect(projName, template, prd, trd, architecture)
                 showLiveVoiceArchitect = false
             }
         )
@@ -4309,6 +4310,7 @@ private fun ProjectCard(
     onOpen: () -> Unit,
     onRename: (String) -> Unit,
     onDelete: () -> Unit,
+    onOpenInFileManager: () -> Unit,
 ) {
     var menuOpen by rememberSaveable(project.id) { mutableStateOf(false) }
     var showRename by rememberSaveable(project.id) { mutableStateOf(false) }
@@ -4357,11 +4359,17 @@ private fun ProjectCard(
                     maxLines = 1,
                 )
                 Text("/workspace/${project.slug}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                Text("📁 Documents/MindSparQ-Mobile-Jarvis/${project.name}", color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f), fontSize = 10.5.sp, fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("${project.language} · ${project.localizedUpdatedAt()}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
             }
             Box {
                 IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.ws_project_options)) }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Open in File Manager") },
+                        leadingIcon = { Icon(Icons.Default.Folder, null, tint = MaterialTheme.colorScheme.primary) },
+                        onClick = { menuOpen = false; onOpenInFileManager() },
+                    )
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.ws_rename_project)) },
                         leadingIcon = { Icon(Icons.Default.Edit, null) },
