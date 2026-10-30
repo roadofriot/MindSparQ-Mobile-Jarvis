@@ -36,13 +36,21 @@ sealed interface GitHubTokenPoll {
 
 /** [context] is optional; when present, user-facing errors use the language picked in the app. */
 class GitHubClient(private val context: Context? = null) {
+    companion object {
+        const val DEFAULT_CLIENT_ID = "178c6fc778ccc68e1d6a"
+        const val SCOPES = "repo,read:org,gist,user"
+    }
+
     private fun text(@androidx.annotation.StringRes id: Int, fallback: String, vararg args: Any): String =
         context?.let { AppStrings.get(it, id, *args) } ?: fallback
 
-    fun requestDeviceCode(clientId: String): GitHubDeviceCode {
+    fun requestDeviceCode(clientId: String = DEFAULT_CLIENT_ID): GitHubDeviceCode {
         val json = postForm(
             "https://github.com/login/device/code",
-            mapOf("client_id" to clientId),
+            mapOf(
+                "client_id" to clientId,
+                "scope" to SCOPES,
+            ),
         )
         return GitHubDeviceCode(
             deviceCode = json.getString("device_code"),
@@ -53,7 +61,7 @@ class GitHubClient(private val context: Context? = null) {
         )
     }
 
-    fun pollDeviceToken(clientId: String, deviceCode: String): GitHubTokenPoll {
+    fun pollDeviceToken(clientId: String = DEFAULT_CLIENT_ID, deviceCode: String): GitHubTokenPoll {
         val json = postForm(
             "https://github.com/login/oauth/access_token",
             mapOf(
@@ -75,6 +83,36 @@ class GitHubClient(private val context: Context? = null) {
     fun account(token: String): GitHubAccount {
         val json = getJson("https://api.github.com/user", token) as JSONObject
         return GitHubAccount(json.getString("login"), json.optString("avatar_url"))
+    }
+
+    fun createRepository(token: String, name: String, description: String, isPrivate: Boolean): GitHubRepository {
+        val body = JSONObject().apply {
+            put("name", name)
+            put("description", description)
+            put("private", isPrivate)
+            put("auto_init", false)
+        }.toString().toByteArray(Charsets.UTF_8)
+        val connection = (URL("https://api.github.com/user/repos").openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 15_000
+            readTimeout = 30_000
+            doOutput = true
+            setRequestProperty("Accept", "application/vnd.github+json")
+            setRequestProperty("Authorization", "Bearer $token")
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("X-GitHub-Api-Version", "2026-03-10")
+            setRequestProperty("User-Agent", "MindSparQ-Jarvis")
+        }
+        connection.outputStream.use { it.write(body) }
+        val item = readResponse(connection) as JSONObject
+        return GitHubRepository(
+            fullName = item.getString("full_name"),
+            cloneUrl = item.getString("clone_url"),
+            private = item.optBoolean("private"),
+            defaultBranch = item.optString("default_branch", "main"),
+            description = item.optString("description"),
+            updatedAt = item.optString("updated_at"),
+        )
     }
 
     fun repositories(token: String): List<GitHubRepository> {

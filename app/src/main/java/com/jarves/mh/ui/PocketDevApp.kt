@@ -2540,6 +2540,7 @@ private fun RootScreenHost(
                     onGenerateNewGitHubCode = viewModel::generateNewGitHubCode,
                     onRefreshGitHub = viewModel::refreshGitHubRepositories,
                     onDisconnectGitHub = viewModel::disconnectGitHub,
+                    onConnectGitHubWithToken = viewModel::connectGitHubWithToken,
                     onCloneGitHub = viewModel::cloneGitHubRepository,
                     onRenameProject = viewModel::renameProject,
                     onDeleteProject = viewModel::deleteProject,
@@ -3575,7 +3576,7 @@ private fun ProjectsScreen(
     onOpen: (Project) -> Unit,
     onCreate: (String) -> Unit,
     onCreateAndroid: (String, AndroidTemplate) -> Unit,
-    onScaffoldVoiceArchitect: (name: String, template: AndroidTemplate?, prd: String, trd: String, architecture: String) -> Unit,
+    onScaffoldVoiceArchitect: (name: String, template: AndroidTemplate?, prd: String, trd: String, architecture: String, decisions: String) -> Unit,
     onOpenInFileManager: (projectName: String) -> Unit,
     onCreateQuickProject: () -> Unit,
     onImportZip: (Uri) -> Unit,
@@ -3584,6 +3585,7 @@ private fun ProjectsScreen(
     onGenerateNewGitHubCode: () -> Unit,
     onRefreshGitHub: () -> Unit,
     onDisconnectGitHub: () -> Unit,
+    onConnectGitHubWithToken: (String) -> Unit = {},
     onCloneGitHub: (GitHubRepository) -> Unit,
     onRenameProject: (String, String) -> Unit,
     onDeleteProject: (String) -> Unit,
@@ -4123,8 +4125,8 @@ private fun ProjectsScreen(
     if (showLiveVoiceArchitect) {
         LiveVoiceProjectArchitectDialog(
             onDismiss = { showLiveVoiceArchitect = false },
-            onCreateProject = { projName, template, prd, trd, architecture ->
-                onScaffoldVoiceArchitect(projName, template, prd, trd, architecture)
+            onCreateProject = { projName, template, prd, trd, architecture, decisions ->
+                onScaffoldVoiceArchitect(projName, template, prd, trd, architecture, decisions)
                 showLiveVoiceArchitect = false
             }
         )
@@ -4156,6 +4158,8 @@ private fun ProjectsScreen(
     )
     if (showGitHubDialog) {
         val clipboard = LocalClipboardManager.current
+        var showTokenInput by rememberSaveable { mutableStateOf(false) }
+        var patInput by rememberSaveable { mutableStateOf("") }
         val filteredRepositories = state.githubRepositories.filter { repository ->
             repositorySearch.isBlank() || repository.fullName.contains(repositorySearch, ignoreCase = true)
         }
@@ -4165,13 +4169,45 @@ private fun ProjectsScreen(
             title = { Text(state.githubLogin?.let { stringResource(R.string.projects_github_account, it) } ?: stringResource(R.string.projects_connect_github)) },
             text = {
                 when (state.githubAuthStatus) {
-                    GitHubAuthStatus.DISCONNECTED, GitHubAuthStatus.ERROR -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    GitHubAuthStatus.DISCONNECTED, GitHubAuthStatus.ERROR -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
                             state.githubMessage ?: stringResource(R.string.ws_github_signin_desc),
                             color = if (state.githubAuthStatus == GitHubAuthStatus.ERROR) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 13.sp,
                         )
-                        Button(onClick = onStartGitHubLogin, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ws_github_signin)) }
+                        Button(onClick = onStartGitHubLogin, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.Code, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.ws_github_signin))
+                        }
+                        TextButton(
+                            onClick = { showTokenInput = !showTokenInput },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(if (showTokenInput) "Hide Token Option" else "Or connect with Personal Access Token (PAT)", fontSize = 12.sp)
+                        }
+                        if (showTokenInput) {
+                            OutlinedTextField(
+                                value = patInput,
+                                onValueChange = { patInput = it },
+                                label = { Text("GitHub Token (ghp_...)") },
+                                placeholder = { Text("ghp_xxxxxxxxxxxx") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Button(
+                                onClick = {
+                                    if (patInput.isNotBlank()) {
+                                        onConnectGitHubWithToken(patInput.trim())
+                                    }
+                                },
+                                enabled = patInput.isNotBlank(),
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2EA043))
+                            ) {
+                                Text("Connect Token", color = Color.White)
+                            }
+                        }
                     }
                     GitHubAuthStatus.STARTING -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                         CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.5.dp)
@@ -4179,23 +4215,70 @@ private fun ProjectsScreen(
                         Text(state.githubMessage ?: stringResource(R.string.ws_github_starting))
                     }
                     GitHubAuthStatus.AWAITING_USER -> Column(verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(stringResource(R.string.ws_github_enter_code), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "Enter this one-time code on GitHub to authorize MindSparQ:",
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         Surface(
-                            modifier = Modifier.fillMaxWidth().clickable { state.githubUserCode?.let { clipboard.setText(AnnotatedString(it)) } },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    state.githubUserCode?.let {
+                                        clipboard.setText(AnnotatedString(it))
+                                        Toast.makeText(context, "Code copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
                             shape = RoundedCornerShape(14.dp),
                             color = MaterialTheme.colorScheme.primaryContainer,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
                         ) {
-                            Text(
-                                state.githubUserCode.orEmpty(),
+                            Column(
                                 modifier = Modifier.padding(16.dp),
-                                textAlign = TextAlign.Center,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 22.sp,
-                                letterSpacing = 2.sp,
-                            )
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    state.githubUserCode.orEmpty(),
+                                    textAlign = TextAlign.Center,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 26.sp,
+                                    letterSpacing = 3.sp,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text("Tap to copy code", fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                            }
                         }
-                        Text(stringResource(R.string.ws_github_tap_code), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                        Button(
+                            onClick = {
+                                state.githubUserCode?.let {
+                                    clipboard.setText(AnnotatedString(it))
+                                    Toast.makeText(context, "Code copied! Opening GitHub...", Toast.LENGTH_SHORT).show()
+                                }
+                                val uri = Uri.parse(state.githubVerificationUri ?: "https://github.com/login/device")
+                                context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Copy Code & Open GitHub")
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        ) {
+                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(10.dp))
+                            Text("Waiting for authorization in browser...", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+
                         OutlinedButton(
                             onClick = onGenerateNewGitHubCode,
                             modifier = Modifier.fillMaxWidth(),
@@ -4644,6 +4727,8 @@ private fun MindSparQUserProfileDialog(
     onDisconnectGitHub: () -> Unit,
     onOpenFileManager: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -4801,6 +4886,48 @@ private fun MindSparQUserProfileDialog(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 15.sp
                         )
+
+                        if (state.githubAuthStatus == GitHubAuthStatus.AWAITING_USER && state.githubUserCode != null) {
+                            Spacer(Modifier.height(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                modifier = Modifier.fillMaxWidth().clickable {
+                                    clipboard.setText(AnnotatedString(state.githubUserCode.orEmpty()))
+                                    Toast.makeText(context, "Code copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                }
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(10.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        state.githubUserCode.orEmpty(),
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 20.sp,
+                                        letterSpacing = 2.sp,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                    Text("Tap to copy code", fontSize = 10.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                                }
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            Button(
+                                onClick = {
+                                    clipboard.setText(AnnotatedString(state.githubUserCode.orEmpty()))
+                                    Toast.makeText(context, "Opening GitHub...", Toast.LENGTH_SHORT).show()
+                                    val uri = Uri.parse(state.githubVerificationUri ?: "https://github.com/login/device")
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Open GitHub Verification", fontSize = 12.sp)
+                            }
+                        }
                     }
                 }
 

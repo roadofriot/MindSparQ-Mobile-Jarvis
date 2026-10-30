@@ -68,6 +68,10 @@ class AppPreferences(private val context: Context) {
         get() = preferences.getString("github_login", "") ?: ""
         set(value) { preferences.edit().putString("github_login", value).apply() }
 
+    var githubToken: String
+        get() = preferences.getString("github_token", "") ?: ""
+        set(value) { preferences.edit().putString("github_token", value).apply() }
+
     fun saveAgentConversation(agent: AgentKind, projectId: String, chatId: String, conversationId: String?) {
         val key = agentConversationKey(agent, projectId, chatId)
         preferences.edit().apply {

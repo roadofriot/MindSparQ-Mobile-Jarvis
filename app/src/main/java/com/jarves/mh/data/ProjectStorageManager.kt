@@ -36,11 +36,56 @@ object ProjectStorageManager {
     }
 
     /**
-     * Returns the public folder for a specific project.
+     * Returns the dedicated Plans directory:
+     * `/storage/emulated/0/Documents/MindSparQ-Mobile-Jarvis/Plans/<planId>/`
+     */
+    fun getPublicPlanDir(context: Context, planId: String): File {
+        val cleanName = planId.trim().replace(Regex("[^a-zA-Z0-9._-]"), "-")
+        val plansBase = File(getPublicProjectsDir(context), "Plans").apply { mkdirs() }
+        return File(plansBase, cleanName).apply { mkdirs() }
+    }
+
+    /**
+     * Returns the public folder for a specific project:
+     * `/storage/emulated/0/Documents/MindSparQ-Mobile-Jarvis/Projects/<projectName>/`
      */
     fun getProjectPublicDir(context: Context, projectName: String): File {
         val cleanName = projectName.trim().replace(Regex("[^a-zA-Z0-9._-]"), "-")
-        return File(getPublicProjectsDir(context), cleanName).apply { mkdirs() }
+        val projectsBase = File(getPublicProjectsDir(context), "Projects").apply { mkdirs() }
+        return File(projectsBase, cleanName).apply { mkdirs() }
+    }
+
+    /**
+     * Writes architectural and requirements plan artifacts to the dedicated Plans storage.
+     */
+    fun writePlanArtifacts(
+        context: Context,
+        planId: String,
+        prdContent: String,
+        trdContent: String,
+        architectureContent: String,
+        decisionsContent: String = "",
+    ): File {
+        val planDir = getPublicPlanDir(context, planId)
+        File(planDir, "PRD.md").writeText(prdContent)
+        File(planDir, "TRD.md").writeText(trdContent)
+        File(planDir, "ARCHITECTURE.md").writeText(architectureContent)
+        if (decisionsContent.isNotBlank()) {
+            File(planDir, "DECISIONS.md").writeText(decisionsContent)
+        }
+        try {
+            MediaScannerConnection.scanFile(
+                context,
+                arrayOf(
+                    File(planDir, "PRD.md").absolutePath,
+                    File(planDir, "TRD.md").absolutePath,
+                    File(planDir, "ARCHITECTURE.md").absolutePath,
+                ),
+                null,
+                null
+            )
+        } catch (_: Exception) {}
+        return planDir
     }
 
     /**

@@ -8,6 +8,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -46,10 +47,13 @@ import androidx.compose.material.icons.automirrored.filled.VolumeMute
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.SmartToy
@@ -58,20 +62,23 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -84,6 +91,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -94,11 +102,30 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
 
-enum class ArchitectActionType {
-    NONE,
-    PROPOSE_PLAN, // Button: Generate PRD, TRD & Implementation Plan
-    READY_TO_BUILD, // Button: Proceed & Build Application
+enum class ArchitectWorkflowStage {
+    DISCOVERY,         // Requirements interview & interactive MCQs
+    PLAN_REVIEW,       // PRD, TRD, Architecture & Decisions Review
+    PLAN_APPROVED,     // Stage 1 complete -> Ready for Stage 2 Build
+    BUILDING,          // Scaffolding project & writing artifacts
 }
+
+data class McqOption(
+    val id: String,
+    val title: String,
+    val isRecommended: Boolean = false,
+    val aiRationale: String = "",
+)
+
+data class McqQuestion(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val options: List<McqOption>,
+    var selectedOptionId: String? = null,
+    var customAnswer: String? = null,
+    var isAiDecided: Boolean = false,
+    var aiReasoning: String? = null,
+)
 
 data class ArchitectMessage(
     val id: String = java.util.UUID.randomUUID().toString(),
@@ -109,20 +136,22 @@ data class ArchitectMessage(
     val prd: String? = null,
     val trd: String? = null,
     val architecture: String? = null,
-    val actionType: ArchitectActionType = ArchitectActionType.NONE,
+    val decisions: String? = null,
+    val workflowStage: ArchitectWorkflowStage = ArchitectWorkflowStage.DISCOVERY,
 )
 
 @Composable
 fun LiveVoiceProjectArchitectDialog(
     onDismiss: () -> Unit,
-    onCreateProject: (name: String, template: AndroidTemplate?, prd: String, trd: String, architecture: String) -> Unit,
+    onCreateProject: (name: String, template: AndroidTemplate?, prd: String, trd: String, architecture: String, decisions: String) -> Unit,
 ) {
     val context = LocalContext.current
     var inputText by remember { mutableStateOf("") }
     var isListening by remember { mutableStateOf(false) }
     var isThinking by remember { mutableStateOf(false) }
     var isVoiceMuted by rememberSaveable { mutableStateOf(false) }
-    var selectedPlanTab by rememberSaveable { mutableStateOf(0) }
+    var selectedPlanTab by rememberSaveable { mutableIntStateOf(0) }
+    var currentWorkflowStage by rememberSaveable { mutableStateOf(ArchitectWorkflowStage.DISCOVERY) }
 
     // Natural Human Voice Speech Engine
     var ttsEngine: TextToSpeech? by remember { mutableStateOf(null) }
@@ -140,7 +169,6 @@ fun LiveVoiceProjectArchitectDialog(
             if (status == TextToSpeech.SUCCESS) {
                 instance?.language = Locale.US
                 runCatching {
-                    // Select highest quality human/neural English voice available
                     val voiceCandidates = instance?.voices?.filter { it.locale.language == "en" }
                     val highQualityVoice = voiceCandidates?.firstOrNull { voice ->
                         !voice.isNetworkConnectionRequired &&
@@ -148,16 +176,16 @@ fun LiveVoiceProjectArchitectDialog(
                          voice.name.contains("neural", ignoreCase = true) ||
                          voice.name.contains("en-us-x", ignoreCase = true))
                     } ?: voiceCandidates?.firstOrNull()
+
                     if (highQualityVoice != null) {
                         instance?.voice = highQualityVoice
                     }
-                    // Natural human speech tempo & warm pitch (Mark-LVI Jarvis cadence)
                     instance?.setSpeechRate(1.04f)
                     instance?.setPitch(0.97f)
                 }
                 ttsEngine = instance
                 if (!isVoiceMuted) {
-                    val greeting = "MindSparQ Jarvis online. What are we building today?"
+                    val greeting = "MindSparQ Jarvis online. What project idea are we architecting today?"
                     instance?.speak(greeting, TextToSpeech.QUEUE_FLUSH, null, "jarvis_welcome")
                 }
             }
@@ -168,11 +196,60 @@ fun LiveVoiceProjectArchitectDialog(
         }
     }
 
+    // Adaptive Structured Requirements Discovery Questions
+    val questions = remember {
+        mutableStateListOf(
+            McqQuestion(
+                id = "platform",
+                title = "1. Target Platform & Runtime",
+                subtitle = "Where will your application primarily run?",
+                options = listOf(
+                    McqOption("android_native", "Native Android (Compose / Kotlin)", isRecommended = true, aiRationale = "Optimal performance, low RAM footprint, and full hardware camera & sensor access."),
+                    McqOption("kmp", "Kotlin Multiplatform (Mobile + Desktop)", aiRationale = "Shares domain logic seamlessly across Android, iOS, and Desktop JVM."),
+                    McqOption("web", "Full-Stack Web (Node.js / React)", aiRationale = "Instant cross-platform browser availability with low barrier to entry."),
+                    McqOption("cli", "Linux Terminal CLI Daemon", aiRationale = "Ultra-lightweight headless service with minimal CPU and memory overhead.")
+                )
+            ),
+            McqQuestion(
+                id = "architecture",
+                title = "2. Architecture & State Management",
+                subtitle = "Choose your code structure pattern",
+                options = listOf(
+                    McqOption("mvi", "Clean MVI + StateFlow (Unidirectional)", isRecommended = true, aiRationale = "Predictable state transitions, 100% testable reducers, and immutable UI state."),
+                    McqOption("mvvm", "Decoupled MVVM + Kotlin Coroutines", aiRationale = "Standard Android lifecycle-aware ViewModels and simple reactive streams."),
+                    McqOption("event_driven", "Event-Driven Actor Pipeline", aiRationale = "High throughput asynchronous event streaming for real-time applications."),
+                    McqOption("modular", "Minimal Modular Rapid Prototype", aiRationale = "Zero boilerplate, flat package structure for rapid concept validation.")
+                )
+            ),
+            McqQuestion(
+                id = "persistence",
+                title = "3. Data Persistence & Storage",
+                subtitle = "How should local and cloud data be stored?",
+                options = listOf(
+                    McqOption("offline_room", "Offline-First Room SQLite Database", isRecommended = true, aiRationale = "Zero internet dependency with immediate startup response and ACID safety."),
+                    McqOption("encrypted_kv", "Hardware-Backed KeyStore & Encrypted Storage", aiRationale = "Military-grade AES-256 GCM encryption for authentication tokens and credentials."),
+                    McqOption("cloud_sync", "Ktor HTTP / WebSockets Cloud Sync", aiRationale = "Real-time background bidirectional synchronization with remote APIs."),
+                    McqOption("in_memory", "Pure In-Memory / Ephemeral", aiRationale = "Transient in-RAM processing without disk I/O latency.")
+                )
+            ),
+            McqQuestion(
+                id = "theme",
+                title = "4. UI Design & Theme Aesthetic",
+                subtitle = "Visual design system and typography",
+                options = listOf(
+                    McqOption("obsidian_dark", "Obsidian Dark OLED (Apple / Mac Minimal)", isRecommended = true, aiRationale = "High contrast, battery-efficient, sleek 2026 dark mode with subtle borders."),
+                    McqOption("clean_light", "Clean Light Neutral", aiRationale = "Airy, high readability layout tailored for daylight reading."),
+                    McqOption("cyber_neon", "Cyber Neon Hacker Monospace", aiRationale = "Developer-centric vibrant accent palette with monospace typography.")
+                )
+            )
+        )
+    }
+
     val messages = remember {
         mutableStateListOf(
             ArchitectMessage(
                 sender = "AI",
-                text = "MindSparQ Jarvis online. What are we building today?",
+                text = "MindSparQ Jarvis online. What project idea are we architecting today?\n\nTell me your concept or select requirements below. I'll ask adaptive clarification questions, form an implementation plan, and wait for your explicit approval before building.",
             )
         )
     }
@@ -189,6 +266,9 @@ fun LiveVoiceProjectArchitectDialog(
                 handleUserConversationalTurn(
                     userInput = spokenText,
                     messages = messages,
+                    questions = questions,
+                    currentStage = currentWorkflowStage,
+                    setStage = { currentWorkflowStage = it },
                     setThinking = { isThinking = it },
                     speak = { speakAloud(it) },
                     onCreateProject = onCreateProject,
@@ -212,7 +292,7 @@ fun LiveVoiceProjectArchitectDialog(
         }
     }
 
-    // Pulsing effect for microphone
+    // Microphone pulse animation
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 1f,
@@ -224,6 +304,9 @@ fun LiveVoiceProjectArchitectDialog(
         label = "pulseScale"
     )
 
+    val resolvedCount = questions.count { it.selectedOptionId != null || !it.customAnswer.isNullOrBlank() }
+    val totalCount = questions.size
+
     Dialog(
         onDismissRequest = {
             ttsEngine?.stop()
@@ -234,7 +317,7 @@ fun LiveVoiceProjectArchitectDialog(
         Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
+                .padding(14.dp),
             shape = RoundedCornerShape(24.dp),
             color = Color(0xFF0F141C),
             border = BorderStroke(1.dp, Color(0xFF1E2638)),
@@ -243,10 +326,10 @@ fun LiveVoiceProjectArchitectDialog(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(18.dp)
+                    .padding(16.dp)
                     .imePadding()
             ) {
-                // Top Header Bar
+                // Header Bar
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -276,7 +359,7 @@ fun LiveVoiceProjectArchitectDialog(
                                 color = Color(0xFFF0F6FC),
                             )
                             Text(
-                                "Autonomous Multi-Turn Engineering Partner",
+                                "Adaptive Discovery · 2-Stage Gated Engineering",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -284,7 +367,6 @@ fun LiveVoiceProjectArchitectDialog(
                     }
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Voice Mute Toggle
                         IconButton(onClick = {
                             isVoiceMuted = !isVoiceMuted
                             if (isVoiceMuted) ttsEngine?.stop()
@@ -304,9 +386,46 @@ fun LiveVoiceProjectArchitectDialog(
                     }
                 }
 
-                Spacer(Modifier.height(12.dp))
+                // Requirements Progress Bar
+                Spacer(Modifier.height(10.dp))
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFF161E2E),
+                    border = BorderStroke(1.dp, Color(0xFF222F46)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "Requirements Discovery Progress",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF94A3B8)
+                            )
+                            Text(
+                                "$resolvedCount / $totalCount Resolved",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (resolvedCount == totalCount) Color(0xFF2EA043) else Color(0xFF38BDF8)
+                            )
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        LinearProgressIndicator(
+                            progress = { resolvedCount.toFloat() / totalCount },
+                            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                            color = if (resolvedCount == totalCount) Color(0xFF2EA043) else Color(0xFF38BDF8),
+                            trackColor = Color(0xFF0F141C),
+                        )
+                    }
+                }
 
-                // Chat History & Blueprint View
+                Spacer(Modifier.height(10.dp))
+
+                // Chat History & Interactive Cards
                 LazyColumn(
                     modifier = Modifier
                         .weight(1f)
@@ -328,7 +447,7 @@ fun LiveVoiceProjectArchitectDialog(
                                 ),
                                 color = if (isAi) Color(0xFF161E2E) else MaterialTheme.colorScheme.primaryContainer,
                                 border = if (isAi) BorderStroke(1.dp, Color(0xFF222F46)) else null,
-                                modifier = Modifier.fillMaxWidth(0.92f),
+                                modifier = Modifier.fillMaxWidth(0.94f),
                             ) {
                                 Column(modifier = Modifier.padding(14.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -356,7 +475,7 @@ fun LiveVoiceProjectArchitectDialog(
                                         color = if (isAi) Color(0xFFE2E8F0) else MaterialTheme.colorScheme.onPrimaryContainer,
                                     )
 
-                                    // Interactive PRD / TRD / Architecture Plan Viewer
+                                    // Interactive PRD / TRD / Architecture / Decisions Plan Viewer
                                     if (msg.prd != null && msg.trd != null && msg.architecture != null) {
                                         Spacer(Modifier.height(12.dp))
                                         Surface(
@@ -386,6 +505,11 @@ fun LiveVoiceProjectArchitectDialog(
                                                         onClick = { selectedPlanTab = 2 },
                                                         text = { Text("Architecture", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                                                     )
+                                                    Tab(
+                                                        selected = selectedPlanTab == 3,
+                                                        onClick = { selectedPlanTab = 3 },
+                                                        text = { Text("Decisions Log", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                                                    )
                                                 }
 
                                                 Spacer(Modifier.height(8.dp))
@@ -393,7 +517,8 @@ fun LiveVoiceProjectArchitectDialog(
                                                 val displayDoc = when (selectedPlanTab) {
                                                     0 -> msg.prd
                                                     1 -> msg.trd
-                                                    else -> msg.architecture
+                                                    2 -> msg.architecture
+                                                    else -> msg.decisions.orEmpty()
                                                 }
 
                                                 Text(
@@ -404,21 +529,50 @@ fun LiveVoiceProjectArchitectDialog(
                                                     color = Color(0xFF94A3B8),
                                                     modifier = Modifier
                                                         .fillMaxWidth()
-                                                        .height(180.dp)
+                                                        .height(200.dp)
                                                         .padding(4.dp)
                                                 )
                                             }
                                         }
                                     }
 
-                                    // Action Triggers
-                                    if (msg.actionType == ArchitectActionType.PROPOSE_PLAN) {
+                                    // Stage 1 Gating Button: Approve Implementation Plan
+                                    if (msg.workflowStage == ArchitectWorkflowStage.PLAN_REVIEW) {
                                         Spacer(Modifier.height(12.dp))
                                         Button(
                                             onClick = {
                                                 handleUserConversationalTurn(
-                                                    userInput = "Proceed and generate implementation plan",
+                                                    userInput = "Approve implementation plan",
                                                     messages = messages,
+                                                    questions = questions,
+                                                    currentStage = currentWorkflowStage,
+                                                    setStage = { currentWorkflowStage = it },
+                                                    setThinking = { isThinking = it },
+                                                    speak = { speakAloud(it) },
+                                                    onCreateProject = onCreateProject,
+                                                )
+                                            },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2EA043)),
+                                            shape = RoundedCornerShape(12.dp),
+                                        ) {
+                                            Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(18.dp), tint = Color.White)
+                                            Spacer(Modifier.width(8.dp))
+                                            Text("✅ Stage 1: Approve Implementation Plan", fontWeight = FontWeight.Bold, color = Color.White)
+                                        }
+                                    }
+
+                                    // Stage 2 Gating Button: OK, Proceed with Implementation
+                                    if (msg.workflowStage == ArchitectWorkflowStage.PLAN_APPROVED) {
+                                        Spacer(Modifier.height(12.dp))
+                                        Button(
+                                            onClick = {
+                                                handleUserConversationalTurn(
+                                                    userInput = "Proceed with implementation and build",
+                                                    messages = messages,
+                                                    questions = questions,
+                                                    currentStage = currentWorkflowStage,
+                                                    setStage = { currentWorkflowStage = it },
                                                     setThinking = { isThinking = it },
                                                     speak = { speakAloud(it) },
                                                     onCreateProject = onCreateProject,
@@ -428,32 +582,218 @@ fun LiveVoiceProjectArchitectDialog(
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8)),
                                             shape = RoundedCornerShape(12.dp),
                                         ) {
-                                            Icon(Icons.Default.Description, null, modifier = Modifier.size(18.dp))
+                                            Icon(Icons.Default.RocketLaunch, null, modifier = Modifier.size(18.dp), tint = Color.Black)
                                             Spacer(Modifier.width(8.dp))
-                                            Text("📋 Generate PRD, TRD & Implementation Plan", fontWeight = FontWeight.Bold, color = Color.Black)
-                                        }
-                                    } else if (msg.actionType == ArchitectActionType.READY_TO_BUILD) {
-                                        Spacer(Modifier.height(12.dp))
-                                        Button(
-                                            onClick = {
-                                                handleUserConversationalTurn(
-                                                    userInput = "Proceed and build application",
-                                                    messages = messages,
-                                                    setThinking = { isThinking = it },
-                                                    speak = { speakAloud(it) },
-                                                    onCreateProject = onCreateProject,
-                                                )
-                                            },
-                                            modifier = Modifier.fillMaxWidth(),
-                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                            shape = RoundedCornerShape(12.dp),
-                                        ) {
-                                            Icon(Icons.Default.RocketLaunch, null, modifier = Modifier.size(18.dp))
-                                            Spacer(Modifier.width(8.dp))
-                                            Text("🚀 Proceed & Build Application Now", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                                            Text("🚀 Stage 2: OK, Proceed with Implementation", fontWeight = FontWeight.Bold, color = Color.Black)
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+
+                    // Interactive MCQ Discovery Question Cards
+                    if (currentWorkflowStage == ArchitectWorkflowStage.DISCOVERY) {
+                        item {
+                            Text(
+                                "Select your requirements or let AI decide:",
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF94A3B8),
+                                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                            )
+                        }
+
+                        items(questions, key = { it.id }) { q ->
+                            val isResolved = q.selectedOptionId != null || !q.customAnswer.isNullOrBlank()
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = Color(0xFF131A26),
+                                border = BorderStroke(1.dp, if (isResolved) Color(0xFF2EA043).copy(alpha = 0.5f) else Color(0xFF1E2638)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(Modifier.padding(14.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text(q.title, fontWeight = FontWeight.Bold, fontSize = 13.5.sp, color = Color.White)
+                                            Text(q.subtitle, fontSize = 11.sp, color = Color(0xFF94A3B8))
+                                        }
+                                        if (isResolved) {
+                                            Surface(
+                                                shape = RoundedCornerShape(10.dp),
+                                                color = Color(0xFF2EA043).copy(alpha = 0.2f),
+                                                border = BorderStroke(1.dp, Color(0xFF2EA043))
+                                            ) {
+                                                Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(Icons.Default.Check, null, tint = Color(0xFF2EA043), modifier = Modifier.size(12.dp))
+                                                    Spacer(Modifier.width(4.dp))
+                                                    Text("Resolved", fontSize = 10.sp, color = Color(0xFF2EA043), fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(Modifier.height(10.dp))
+
+                                    // Option Chips
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        q.options.forEach { option ->
+                                            val isSelected = q.selectedOptionId == option.id && q.customAnswer == null
+                                            Surface(
+                                                shape = RoundedCornerShape(10.dp),
+                                                color = if (isSelected) Color(0xFF1E293B) else Color(0xFF0F141C),
+                                                border = BorderStroke(1.dp, if (isSelected) Color(0xFF38BDF8) else Color(0xFF1E2638)),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        q.selectedOptionId = option.id
+                                                        q.customAnswer = null
+                                                        q.isAiDecided = false
+                                                        q.aiReasoning = null
+                                                    }
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(10.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                ) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(16.dp)
+                                                                .background(if (isSelected) Color(0xFF38BDF8) else Color.Transparent, CircleShape)
+                                                                .border(1.dp, if (isSelected) Color(0xFF38BDF8) else Color(0xFF475569), CircleShape)
+                                                        )
+                                                        Spacer(Modifier.width(8.dp))
+                                                        Text(option.title, fontSize = 12.sp, color = if (isSelected) Color.White else Color(0xFFCBD5E1))
+                                                    }
+                                                    if (option.isRecommended) {
+                                                        Surface(
+                                                            shape = RoundedCornerShape(6.dp),
+                                                            color = Color(0xFFF59E0B).copy(alpha = 0.15f),
+                                                            border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.4f))
+                                                        ) {
+                                                            Text(
+                                                                "Recommended",
+                                                                fontSize = 9.5.sp,
+                                                                color = Color(0xFFF59E0B),
+                                                                fontWeight = FontWeight.Bold,
+                                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Action bar: AI Decide & Custom Answer
+                                    Spacer(Modifier.height(8.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        // AI Decide Button
+                                        OutlinedButton(
+                                            onClick = {
+                                                val rec = q.options.firstOrNull { it.isRecommended } ?: q.options.first()
+                                                q.selectedOptionId = rec.id
+                                                q.customAnswer = null
+                                                q.isAiDecided = true
+                                                q.aiReasoning = rec.aiRationale
+                                            },
+                                            shape = RoundedCornerShape(10.dp),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                            border = BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.6f))
+                                        ) {
+                                            Icon(Icons.Default.Psychology, null, modifier = Modifier.size(15.dp), tint = Color(0xFFA78BFA))
+                                            Spacer(Modifier.width(6.dp))
+                                            Text("🤖 AI Decide", fontSize = 11.sp, color = Color(0xFFA78BFA), fontWeight = FontWeight.SemiBold)
+                                        }
+
+                                        // Custom Answer Indicator / Input Toggle
+                                        var showCustomInput by remember { mutableStateOf(q.customAnswer != null) }
+                                        TextButton(
+                                            onClick = { showCustomInput = !showCustomInput },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                        ) {
+                                            Icon(Icons.Default.Edit, null, modifier = Modifier.size(13.dp), tint = Color(0xFF94A3B8))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text(if (showCustomInput) "Hide Custom" else "Custom Answer", fontSize = 11.sp, color = Color(0xFF94A3B8))
+                                        }
+                                    }
+
+                                    // Transparent AI Reasoning Display
+                                    if (q.isAiDecided && q.aiReasoning != null) {
+                                        Spacer(Modifier.height(6.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = Color(0xFF8B5CF6).copy(alpha = 0.1f),
+                                            border = BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.3f)),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(
+                                                "💡 Jarvis Rationale: ${q.aiReasoning}",
+                                                fontSize = 11.sp,
+                                                color = Color(0xFFD8B4FE),
+                                                modifier = Modifier.padding(8.dp),
+                                                lineHeight = 15.sp
+                                            )
+                                        }
+                                    }
+
+                                    // Custom Answer Input Field
+                                    if (q.customAnswer != null || q.selectedOptionId == null) {
+                                        var customText by remember { mutableStateOf(q.customAnswer.orEmpty()) }
+                                        OutlinedTextField(
+                                            value = customText,
+                                            onValueChange = {
+                                                customText = it
+                                                q.customAnswer = if (it.isNotBlank()) it else null
+                                                if (it.isNotBlank()) {
+                                                    q.selectedOptionId = null
+                                                    q.isAiDecided = false
+                                                    q.aiReasoning = null
+                                                }
+                                            },
+                                            placeholder = { Text("Or specify custom requirement...", fontSize = 11.5.sp) },
+                                            singleLine = true,
+                                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                                            shape = RoundedCornerShape(10.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Unlock Implementation Plan button once requirements are sufficiently clear
+                        item {
+                            Spacer(Modifier.height(6.dp))
+                            Button(
+                                onClick = {
+                                    handleUserConversationalTurn(
+                                        userInput = "Formulate implementation plan based on selected requirements",
+                                        messages = messages,
+                                        questions = questions,
+                                        currentStage = currentWorkflowStage,
+                                        setStage = { currentWorkflowStage = it },
+                                        setThinking = { isThinking = it },
+                                        speak = { speakAloud(it) },
+                                        onCreateProject = onCreateProject,
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8))
+                            ) {
+                                Icon(Icons.Default.Description, null, modifier = Modifier.size(18.dp), tint = Color.Black)
+                                Spacer(Modifier.width(8.dp))
+                                Text("📋 Formulate Implementation Plan (PRD, TRD & Architecture)", fontWeight = FontWeight.Bold, color = Color.Black)
                             }
                         }
                     }
@@ -527,6 +867,9 @@ fun LiveVoiceProjectArchitectDialog(
                                     handleUserConversationalTurn(
                                         userInput = text,
                                         messages = messages,
+                                        questions = questions,
+                                        currentStage = currentWorkflowStage,
+                                        setStage = { currentWorkflowStage = it },
                                         setThinking = { isThinking = it },
                                         speak = { speakAloud(it) },
                                         onCreateProject = onCreateProject,
@@ -545,6 +888,9 @@ fun LiveVoiceProjectArchitectDialog(
                                     handleUserConversationalTurn(
                                         userInput = text,
                                         messages = messages,
+                                        questions = questions,
+                                        currentStage = currentWorkflowStage,
+                                        setStage = { currentWorkflowStage = it },
                                         setThinking = { isThinking = it },
                                         speak = { speakAloud(it) },
                                         onCreateProject = onCreateProject,
@@ -579,93 +925,123 @@ private fun sanitizeForSpeech(text: String): String {
         .replace("UI", "U I")
         .replace("SQLite", "S Q L lite")
         .replace("SDK", "S D K")
+        .replace("MVI", "M V I")
+        .replace("MVVM", "M V V M")
         .replace(Regex("[\\r\\n]+"), " ")
         .replace(Regex("\\s+"), " ")
         .trim()
-        .take(450)
+        .take(300)
 }
 
 private fun handleUserConversationalTurn(
     userInput: String,
     messages: MutableList<ArchitectMessage>,
+    questions: List<McqQuestion>,
+    currentStage: ArchitectWorkflowStage,
+    setStage: (ArchitectWorkflowStage) -> Unit,
     setThinking: (Boolean) -> Unit,
     speak: (String) -> Unit,
-    onCreateProject: (name: String, template: AndroidTemplate?, prd: String, trd: String, architecture: String) -> Unit,
+    onCreateProject: (name: String, template: AndroidTemplate?, prd: String, trd: String, architecture: String, decisions: String) -> Unit,
 ) {
     messages.add(ArchitectMessage(sender = "USER", text = userInput))
     setThinking(true)
 
     val lower = userInput.lowercase().trim()
 
-    // 1. Check if user confirmed building after plan is generated
-    val lastPlanMessage = messages.findLast { it.sender == "AI" && it.actionType == ArchitectActionType.READY_TO_BUILD }
-    if (lastPlanMessage != null && (lower.contains("proceed") || lower.contains("yes") || lower.contains("build") || lower.contains("start") || lower.contains("agree") || lower.contains("implement") || lower.contains("launch"))) {
+    // 1. Check if user is approving Stage 2: Proceed with Implementation & Build
+    val lastApprovedMessage = messages.findLast { it.sender == "AI" && it.workflowStage == ArchitectWorkflowStage.PLAN_APPROVED }
+    if (lastApprovedMessage != null && (lower.contains("proceed") || lower.contains("yes") || lower.contains("build") || lower.contains("start") || lower.contains("agree") || lower.contains("implement") || lower.contains("launch"))) {
         setThinking(false)
-        val confirmation = "⚡ Launching build for '${lastPlanMessage.suggestedProjectName}'. Scaffolding project into Documents/MindSparQ-Mobile-Jarvis, generating PRD, TRD, and architecture files, and opening workspace."
+        setStage(ArchitectWorkflowStage.BUILDING)
+        val confirmation = "⚡ Launching build for '${lastApprovedMessage.suggestedProjectName}'. Writing PRD, TRD, Architecture, and Decisions artifacts to Documents/MindSparQ-Mobile-Jarvis/Plans and scaffolding project workspace."
         messages.add(
             ArchitectMessage(
                 sender = "AI",
                 text = confirmation,
-                actionType = ArchitectActionType.NONE,
+                workflowStage = ArchitectWorkflowStage.BUILDING,
             )
         )
-        speak("Initiating build. Creating project files, writing specifications, and launching your workspace now.")
+        speak("Building your application now. Scaffolding project and writing specifications.")
         onCreateProject(
-            lastPlanMessage.suggestedProjectName ?: "mindsparq-app",
-            lastPlanMessage.suggestedTemplate,
-            lastPlanMessage.prd.orEmpty(),
-            lastPlanMessage.trd.orEmpty(),
-            lastPlanMessage.architecture.orEmpty(),
+            lastApprovedMessage.suggestedProjectName ?: "mindsparq-app",
+            lastApprovedMessage.suggestedTemplate,
+            lastApprovedMessage.prd.orEmpty(),
+            lastApprovedMessage.trd.orEmpty(),
+            lastApprovedMessage.architecture.orEmpty(),
+            lastApprovedMessage.decisions.orEmpty(),
         )
         return
     }
 
-    // 2. Check if user confirmed generating implementation plan
-    val lastProposeMessage = messages.findLast { it.sender == "AI" && it.actionType == ArchitectActionType.PROPOSE_PLAN }
-    if (lastProposeMessage != null && (lower.contains("proceed") || lower.contains("yes") || lower.contains("plan") || lower.contains("generate") || lower.contains("create") || lower.contains("sure") || lower.contains("ok") || lower.contains("draft"))) {
+    // 2. Check if user is approving Stage 1: Approve Implementation Plan
+    val lastReviewMessage = messages.findLast { it.sender == "AI" && it.workflowStage == ArchitectWorkflowStage.PLAN_REVIEW }
+    if (lastReviewMessage != null && (lower.contains("approve") || lower.contains("proceed") || lower.contains("yes") || lower.contains("looks good") || lower.contains("confirm") || lower.contains("ok"))) {
+        setThinking(false)
+        setStage(ArchitectWorkflowStage.PLAN_APPROVED)
+        val approvedNotice = "✅ **Stage 1 Complete: Implementation Plan Approved!**\n\nThe specifications for **${lastReviewMessage.suggestedProjectName}** are locked. Ready to execute code scaffolding. Say **'Proceed'** or tap the build button below to start building!"
+        messages.add(
+            ArchitectMessage(
+                sender = "AI",
+                text = approvedNotice,
+                suggestedProjectName = lastReviewMessage.suggestedProjectName,
+                suggestedTemplate = lastReviewMessage.suggestedTemplate,
+                prd = lastReviewMessage.prd,
+                trd = lastReviewMessage.trd,
+                architecture = lastReviewMessage.architecture,
+                decisions = lastReviewMessage.decisions,
+                workflowStage = ArchitectWorkflowStage.PLAN_APPROVED,
+            )
+        )
+        speak("Plan approved. Whenever you are ready to assemble the codebase, say proceed or tap the button.")
+        return
+    }
+
+    // 3. User requested plan formulation (or answered enough MCQs)
+    val userWantsPlan = lower.contains("plan") || lower.contains("formulate") || lower.contains("generate") || lower.contains("draft") || lower.contains("proceed")
+    if (userWantsPlan || currentStage == ArchitectWorkflowStage.PLAN_REVIEW) {
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
-            delay(600)
-            val projectName = lastProposeMessage.suggestedProjectName ?: "mindsparq-app"
-            val template = lastProposeMessage.suggestedTemplate
-            val (prd, trd, arch) = generateFullTechnicalPlan(projectName, messages.map { "${it.sender}: ${it.text}" }.joinToString("\n"))
+            delay(500)
+            val slug = extractProjectSlug(userInput, messages)
+            val template = if (questions.find { it.id == "platform" }?.selectedOptionId == "android_native") AndroidTemplate.COMPOSE else null
 
-            val planIntro = "I have formulated the complete Product Requirements Document (PRD), Technical Requirements Document (TRD), and System Architecture for **$projectName**.\n\nReview the tabs above. When you are ready, say **'Proceed'** or tap the build button below to start implementing the application!"
+            val decisionsLog = buildDecisionsLog(questions)
+            val (prd, trd, arch) = generateFullTechnicalPlan(slug, decisionsLog, messages.map { "${it.sender}: ${it.text}" }.joinToString("\n"))
 
+            val planIntro = "I have synthesized the complete Product Requirements Document (PRD), Technical Requirements Document (TRD), System Architecture, and Decisions Log for **$slug**.\n\nPlease review the tabs above. Once satisfied, click **'Stage 1: Approve Implementation Plan'** to proceed!"
+
+            setStage(ArchitectWorkflowStage.PLAN_REVIEW)
             messages.add(
                 ArchitectMessage(
                     sender = "AI",
                     text = planIntro,
-                    suggestedProjectName = projectName,
+                    suggestedProjectName = slug,
                     suggestedTemplate = template,
                     prd = prd,
                     trd = trd,
                     architecture = arch,
-                    actionType = ArchitectActionType.READY_TO_BUILD,
+                    decisions = decisionsLog,
+                    workflowStage = ArchitectWorkflowStage.PLAN_REVIEW,
                 )
             )
             setThinking(false)
-            speak("Blueprint synthesized for $projectName. Review the specifications above. When you are ready to start building the code, say proceed.")
+            speak("I have formulated the complete implementation plan for $slug. Review the specifications above and approve the plan when ready.")
         }
         return
     }
 
-    // 3. Multi-turn Conversational Discovery & Architecture Interview
+    // 4. Adaptive Requirements Discovery Turn
     kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
-        delay(600)
+        delay(500)
         val userTurnCount = messages.count { it.sender == "USER" }
-        val (aiResponse, aiSpeech, slug, template, shouldProposePlan) = generateConversationalInterviewTurn(
-            currentInput = userInput,
-            turnCount = userTurnCount,
-            fullConversation = messages.toList()
-        )
+        val slug = extractProjectSlug(userInput, messages)
+        val (aiResponse, aiSpeech) = generateAdaptiveClarification(userInput, slug, questions)
 
         messages.add(
             ArchitectMessage(
                 sender = "AI",
                 text = aiResponse,
                 suggestedProjectName = slug,
-                suggestedTemplate = template,
-                actionType = if (shouldProposePlan) ArchitectActionType.PROPOSE_PLAN else ArchitectActionType.NONE,
+                workflowStage = ArchitectWorkflowStage.DISCOVERY,
             )
         )
         setThinking(false)
@@ -673,79 +1049,62 @@ private fun handleUserConversationalTurn(
     }
 }
 
-private fun generateConversationalInterviewTurn(
-    currentInput: String,
-    turnCount: Int,
-    fullConversation: List<ArchitectMessage>,
-): Quintuple<String, String, String, AndroidTemplate?, Boolean> {
-    val lower = currentInput.lowercase()
-
-    // Determine template from context
-    val allText = (fullConversation.map { it.text } + currentInput).joinToString(" ").lowercase()
-    val template = when {
-        allText.contains("android") || allText.contains("compose") || allText.contains("mobile") -> AndroidTemplate.COMPOSE
-        allText.contains("xml") || allText.contains("view") -> AndroidTemplate.XML
-        else -> null
-    }
-
-    // Extract smart project slug
+private fun extractProjectSlug(currentInput: String, messages: List<ArchitectMessage>): String {
+    val allText = (messages.map { it.text } + currentInput).joinToString(" ")
     val words = currentInput.replace(Regex("[^a-zA-Z0-9 ]"), "")
         .split(" ")
-        .filter { it.length > 2 && it.lowercase() !in listOf("the", "app", "want", "make", "create", "build", "with", "for", "please", "can", "you", "like", "need", "that", "this", "also") }
+        .filter { it.length > 2 && it.lowercase() !in listOf("the", "app", "want", "make", "create", "build", "with", "for", "please", "can", "you", "like", "need", "that", "this", "also", "proceed", "plan", "formulate") }
         .take(3)
         .joinToString("-") { it.lowercase() }
-    val slug = if (words.isNotBlank()) words else "mindsparq-project"
-
-    val userExplicitlyWantsPlan = lower.contains("plan") || lower.contains("proceed") || lower.contains("done") || lower.contains("create") || lower.contains("start") || lower.contains("draft")
-
-    if (turnCount >= 2 || userExplicitlyWantsPlan) {
-        val proposalText = buildString {
-            append("Architecture locked in for **$slug**:\n\n")
-            append("• **Platform**: ${if (template != null) "Native Android (Jetpack Compose / Kotlin)" else "Full-Stack Modular Application"}\n")
-            append("• **Data Layer**: Offline-first Room persistence & encrypted storage\n")
-            append("• **Architecture**: Unidirectional Data Flow with MVI & StateFlow\n\n")
-            append("I have enough context to generate the complete **PRD**, **TRD**, and **Architecture Blueprint**. Shall I draft the implementation plan?")
-        }
-        val proposalSpeech = "Architecture locked in for $slug. I have enough context to synthesize the complete product requirements, technical specifications, and architecture blueprint. Shall I draft the implementation plan?"
-        return Quintuple(proposalText, proposalSpeech, slug, template, true)
-    }
-
-    // Natural human engineer interview questions (Mark-LVI cadence)
-    val (uiText, speechText) = when {
-        lower.contains("store") || lower.contains("shop") || lower.contains("commerce") || lower.contains("delivery") || lower.contains("food") -> {
-            "Understood. For **$slug**, will this require real-time order tracking with WebSockets, or local cart persistence with offline-first Room database? Also, what's your preferred theme — Obsidian Dark OLED or clean light?" to
-            "Understood. For $slug, will this require real-time order tracking with web sockets, or local cart persistence and offline database? And what is your preferred theme?"
-        }
-        lower.contains("crypto") || lower.contains("finance") || lower.contains("money") || lower.contains("wallet") -> {
-            "Understood. For **$slug**, should we connect public market price feeds (CoinGecko) with local caching, or track private balances with encrypted SQLite? And do you want interactive candlestick charts?" to
-            "Understood. For $slug, should we connect public market price feeds with local caching, or track private balances with encrypted storage? And do you want interactive charts?"
-        }
-        lower.contains("ai") || lower.contains("llm") || lower.contains("bot") || lower.contains("chatgpt") || lower.contains("model") -> {
-            "Understood. For **$slug**, will we integrate local device models via Ollama, or stream tokens from Gemini and OpenRouter with markdown rendering?" to
-            "Understood. For $slug, will we integrate local device models, or stream tokens from Gemini and OpenRouter with markdown rendering?"
-        }
-        lower.contains("game") || lower.contains("play") -> {
-            "Understood. For **$slug**, are you aiming for a 60 FPS canvas game loop, or turn-based interactive state machine logic?" to
-            "Understood. For $slug, are you aiming for a 60 frames per second canvas game loop, or turn-based state machine logic?"
-        }
-        lower.contains("chat") || lower.contains("social") || lower.contains("message") -> {
-            "Understood. For **$slug**, should we architect local peer-to-peer WebSocket messaging, or cloud-backed synchronization with end-to-end message encryption?" to
-            "Understood. For $slug, should we architect local peer to peer web socket messaging, or cloud synchronization with message encryption?"
-        }
-        lower.contains("task") || lower.contains("todo") || lower.contains("note") || lower.contains("productivity") -> {
-            "Understood. For **$slug**, should we include recurring background alarms and offline-first Room database sync so it works completely without internet?" to
-            "Understood. For $slug, should we include recurring background alarms and offline database sync so it works completely without internet?"
-        }
-        else -> {
-            "Understood. To get the architecture right for **$slug**, what are the top 2 features users will interact with first, and do you prefer offline-first local storage or external cloud services?" to
-            "Understood. To get the architecture right for $slug, what are the top 2 features users will interact with first, and do you prefer offline local storage or external cloud services?"
-        }
-    }
-
-    return Quintuple(uiText, speechText, slug, template, false)
+    return if (words.isNotBlank()) words else "mindsparq-project"
 }
 
-private fun generateFullTechnicalPlan(projectName: String, contextHistory: String): Triple<String, String, String> {
+private fun buildDecisionsLog(questions: List<McqQuestion>): String {
+    val sb = StringBuilder()
+    sb.append("# Architectural Decisions Log\n\n")
+    sb.append("| Category | Decision / Choice | Decided By | Engineering Rationale |\n")
+    sb.append("|---|---|---|---|\n")
+    questions.forEach { q ->
+        val chosenText = when {
+            !q.customAnswer.isNullOrBlank() -> q.customAnswer!!
+            q.selectedOptionId != null -> q.options.firstOrNull { it.id == q.selectedOptionId }?.title ?: "Default"
+            else -> q.options.firstOrNull { it.isRecommended }?.title ?: "Default"
+        }
+        val decidedBy = if (q.isAiDecided) "AI Architect" else if (q.customAnswer != null || q.selectedOptionId != null) "User" else "AI Default"
+        val rationale = q.aiReasoning ?: q.options.firstOrNull { it.isRecommended }?.aiRationale ?: "Standard best practice"
+        sb.append("| ${q.title.replace(Regex("^\\d+\\.\\s*"), "")} | $chosenText | $decidedBy | $rationale |\n")
+    }
+    return sb.toString()
+}
+
+private fun generateAdaptiveClarification(userInput: String, slug: String, questions: List<McqQuestion>): Pair<String, String> {
+    val lower = userInput.lowercase()
+    val uncompleted = questions.filter { it.selectedOptionId == null && it.customAnswer.isNullOrBlank() }
+
+    val nextTopic = uncompleted.firstOrNull()?.title?.replace(Regex("^\\d+\\.\\s*"), "") ?: "Core Features"
+
+    val (uiText, speechText) = when {
+        lower.contains("crypto") || lower.contains("wallet") -> {
+            "Understood. For **$slug**, I recommend hardware-backed KeyStore encryption and offline-first Room SQLite caching for resilient balance tracking. Would you like public price feeds via CoinGecko?" to
+            "Understood. For $slug, I recommend hardware encryption and offline caching. What are the key screens you want to build first?"
+        }
+        lower.contains("shop") || lower.contains("commerce") || lower.contains("store") -> {
+            "Noted. For **$slug**, we will configure an offline-first cart with Room database and snappy checkout state flow. Shall we proceed with Native Jetpack Compose or Kotlin Multiplatform?" to
+            "Noted. For $slug, we will configure an offline cart with Room database and snappy checkout state flow. Shall we proceed with Native Jetpack Compose or Kotlin Multiplatform?"
+        }
+        lower.contains("ai") || lower.contains("agent") || lower.contains("llm") -> {
+            "Excellent. For **$slug**, we'll architect streaming token support with Gemini 2.5 and local model fallbacks. Next, let's nail down **$nextTopic** in the options above." to
+            "Excellent. For $slug, we will architect streaming token support with Gemini and local model fallbacks. Next, let's nail down $nextTopic in the options above."
+        }
+        else -> {
+            "Great concept for **$slug**. To ensure production-grade architecture, I've highlighted recommendations for **$nextTopic** above. You can tap an option, choose **'🤖 AI Decide'**, or enter a custom requirement." to
+            "Great concept for $slug. To ensure production grade architecture, please review the requirements above, or tap AI Decide to have me choose the optimal path."
+        }
+    }
+    return uiText to speechText
+}
+
+private fun generateFullTechnicalPlan(projectName: String, decisionsLog: String, contextHistory: String): Triple<String, String, String> {
     val prd = """
 # Product Requirements Document (PRD)
 ## Project: $projectName
@@ -757,7 +1116,7 @@ $projectName is engineered to deliver a seamless, high-performance user experien
 
 ### 2. Target Audience & Personas
 - **Primary Users:** Power users seeking fast, responsive workflows on modern mobile and cross-platform devices.
-- **Key Pain Point Solved:** Eliminates fragmentation, slow startup latencies, and unreliable network dependency through local caching.
+- **Key Pain Point Solved:** Eliminates slow startup latencies, memory bloating, and unreliable network dependency through local caching.
 
 ### 3. Core User Stories
 1. **US-01:** As a user, I can launch the app instantly and access my local workspace within 200ms.
@@ -819,6 +1178,7 @@ $projectName/
 ├── PRD.md
 ├── TRD.md
 ├── ARCHITECTURE.md
+├── DECISIONS.md
 ├── README.md
 ├── src/
 │   ├── ui/
@@ -842,6 +1202,3 @@ $projectName/
 
     return Triple(prd, trd, arch)
 }
-
-data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
-data class Quintuple<A, B, C, D, E>(val first: A, val second: B, val third: C, val fourth: D, val fifth: E)
