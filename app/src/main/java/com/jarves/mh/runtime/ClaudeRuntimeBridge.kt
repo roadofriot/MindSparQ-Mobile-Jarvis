@@ -1054,9 +1054,7 @@ class ClaudeRuntimeBridge(
         val running = activeProcess ?: return
         Thread {
             runCatching {
-                running.destroy()
-                Thread.sleep(3_000)
-                if (running.isAlive) running.destroyForcibly()
+                running.terminateProcessTree()
             }
         }.apply { isDaemon = true }.start()
     }

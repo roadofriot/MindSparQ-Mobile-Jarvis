@@ -94,9 +94,7 @@ class DshRuntimeBridge(
                 val running = activeProcess
                 if (running != null) {
                     Thread {
-                        running.destroy()
-                        Thread.sleep(500)
-                        if (running.isAlive) running.destroyForcibly()
+                        running.terminateProcessTree()
                     }.start()
                 }
             }
@@ -390,9 +388,7 @@ class DshRuntimeBridge(
     override suspend fun stopSession(sessionId: String) = withContext(Dispatchers.IO) {
         if (activeSessionId == sessionId) {
             userStopRequested = true
-            activeProcess?.destroy()
-            delay(500)
-            if (activeProcess?.isAlive == true) activeProcess?.destroyForcibly()
+            activeProcess?.terminateProcessTree()
             emitFailureOnce(sessionId, "Stopped by user")
         }
     }

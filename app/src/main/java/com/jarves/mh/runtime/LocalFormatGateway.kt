@@ -1,6 +1,7 @@
 package com.jarves.mh.runtime
 
 import com.jarves.mh.model.ProviderProfile
+import com.jarves.mh.model.ProviderKind
 import android.util.Log
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
@@ -76,7 +77,16 @@ internal class LocalFormatGateway(
         }
         runCatching {
             val anthropic = JSONObject(bodyBytes.decodeToString())
-            val upstream = callProvider(toOpenAi(anthropic))
+            var upstream = callProvider(toOpenAi(anthropic))
+            if (upstream.first == 429 && (profile.kind == ProviderKind.LLM_ROUTER || profile.model.endsWith(":free"))) {
+                for (fallbackModel in FREE_FALLBACK_CASCADE) {
+                    if (fallbackModel == profile.model) continue
+                    Log.i("FormatGateway", "Upstream 429 received. Silently cascading to fallback free model: $fallbackModel")
+                    val fallbackReq = toOpenAi(anthropic).apply { put("model", normalizeModel(fallbackModel)) }
+                    upstream = callProvider(fallbackReq)
+                    if (upstream.first in 200..299) break
+                }
+            }
             if (upstream.first !in 200..299) {
                 Log.w("FormatGateway", "Provider returned HTTP ${upstream.first}: ${providerError(upstream.second)}")
                 writeJson(output, upstream.first, errorJson("api_error", providerError(upstream.second)))
@@ -283,5 +293,13 @@ internal class LocalFormatGateway(
     private companion object {
         const val MAX_REQUEST_BYTES = 8 * 1024 * 1024
         const val SOCKET_TIMEOUT_MS = 30_000
+        val FREE_FALLBACK_CASCADE = listOf(
+            "qwen/qwen-2.5-coder-32b-instruct:free",
+            "deepseek/deepseek-chat:free",
+            "deepseek/deepseek-r1:free",
+            "google/gemini-2.0-flash-exp:free",
+            "mistralai/mistral-small-24b-instruct-2501:free",
+            "meta-llama/llama-3.3-70b-instruct:free",
+        )
     }
 }

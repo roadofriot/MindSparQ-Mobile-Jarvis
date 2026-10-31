@@ -122,3 +122,30 @@ object RuntimeLaunchConfigBuilder {
         )
     }
 }
+
+/**
+ * Safely terminates an OS process and its entire child process tree.
+ * Prevents zombie child processes (node/python/workers) from lingering and holding ports.
+ */
+internal fun Process.terminateProcessTree() {
+    runCatching {
+        val pid: Int? = runCatching {
+            val field = javaClass.getDeclaredField("pid").apply { isAccessible = true }
+            field.getInt(this)
+        }.getOrNull()
+
+        if (pid != null && pid > 0) {
+            runCatching { Runtime.getRuntime().exec(arrayOf("kill", "-TERM", "-$pid")) }
+            runCatching { Runtime.getRuntime().exec(arrayOf("pkill", "-P", "$pid")) }
+        }
+        destroy()
+        Thread.sleep(150)
+        if (isAlive) {
+            if (pid != null && pid > 0) {
+                runCatching { Runtime.getRuntime().exec(arrayOf("kill", "-KILL", "-$pid")) }
+                runCatching { Runtime.getRuntime().exec(arrayOf("pkill", "-9", "-P", "$pid")) }
+            }
+            destroyForcibly()
+        }
+    }
+}

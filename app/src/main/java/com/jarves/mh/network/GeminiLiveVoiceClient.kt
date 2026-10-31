@@ -37,6 +37,8 @@ object GeminiLiveVoiceClient {
                 VoiceIntent.SwitchAgent("deepseek-harness")
             lower.contains("switch to antigravity") || lower.contains("use antigravity") ->
                 VoiceIntent.SwitchAgent("antigravity")
+            lower.contains("switch to opencode") || lower.contains("use opencode") ->
+                VoiceIntent.SwitchAgent("opencode")
             lower.contains("run build") || lower.contains("build app") || lower.contains("build android") ->
                 VoiceIntent.RunBuild
             else -> VoiceIntent.Conversational(spokenText)
@@ -176,7 +178,7 @@ You are MindSparQ Jarvis, an elite autonomous software architect and warm, human
         }
 
         val jsonBody = JSONObject().apply {
-            put("model", "google/gemini-2.5-flash")
+            put("model", "qwen/qwen-2.5-coder-32b-instruct:free")
             put("messages", messagesArray)
             put("temperature", 0.7)
             put("max_tokens", 600)
