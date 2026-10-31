@@ -2604,7 +2604,10 @@ private fun RootScreenHost(
                     onRefreshGitHub = viewModel::refreshGitHubRepositories,
                     onDisconnectGitHub = viewModel::disconnectGitHub,
                     onConnectGitHubWithToken = viewModel::connectGitHubWithToken,
-                    onGetGeminiApiKey = { viewModel.getSavedApiKey(ProviderKind.GEMINI).ifBlank { viewModel.getSavedApiKey(ProviderKind.LLM_ROUTER) } },
+                    onGetGeminiApiKey = {
+                        val key = viewModel.getSavedApiKey(ProviderKind.GEMINI)
+                        if (key.startsWith("AIzaSy") || key.startsWith("sk-or-")) key else ""
+                    },
                     onSaveGeminiApiKey = viewModel::saveGeminiApiKey,
                     onCloneGitHub = viewModel::cloneGitHubRepository,
                     onRenameProject = viewModel::renameProject,

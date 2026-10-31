@@ -45,8 +45,61 @@ object GeminiLiveVoiceClient {
         }
     }
 
-    private const val GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    private const val GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+    private const val GEMINI_FALLBACK_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
     private const val OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+    suspend fun validateApiKey(apiKey: String): Result<String> = withContext(Dispatchers.IO) {
+        val cleanKey = apiKey.trim()
+        if (cleanKey.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("Please paste or type an API key first."))
+        }
+
+        if (cleanKey.startsWith("sk-or-")) {
+            return@withContext runCatching {
+                val url = URL("https://openrouter.ai/api/v1/auth/key")
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    setRequestProperty("Authorization", "Bearer $cleanKey")
+                    connectTimeout = 8_000
+                    readTimeout = 8_000
+                }
+                val code = conn.responseCode
+                if (code in 200..299) {
+                    val body = BufferedReader(InputStreamReader(conn.inputStream, "UTF-8")).use { it.readText() }
+                    val label = JSONObject(body).optJSONObject("data")?.optString("label") ?: "Active"
+                    "OpenRouter API Key valid ($label)!"
+                } else {
+                    val errStream = conn.errorStream ?: conn.inputStream
+                    val errText = BufferedReader(InputStreamReader(errStream, "UTF-8")).use { it.readText() }
+                    val msg = runCatching { JSONObject(errText).optJSONObject("error")?.optString("message") }.getOrNull() ?: errText
+                    throw Exception("OpenRouter auth failed (HTTP $code): $msg")
+                }
+            }
+        } else if (cleanKey.startsWith("AIzaSy")) {
+            return@withContext runCatching {
+                val url = URL("https://generativelanguage.googleapis.com/v1beta/models?key=$cleanKey")
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 8_000
+                    readTimeout = 8_000
+                }
+                val code = conn.responseCode
+                if (code in 200..299) {
+                    "Google Gemini API Key valid & connected (Gemini 2.0 Flash)!"
+                } else {
+                    val errStream = conn.errorStream ?: conn.inputStream
+                    val errText = BufferedReader(InputStreamReader(errStream, "UTF-8")).use { it.readText() }
+                    val msg = runCatching { JSONObject(errText).optJSONObject("error")?.optString("message") }.getOrNull() ?: errText
+                    throw Exception("Gemini auth failed (HTTP $code): $msg")
+                }
+            }
+        } else {
+            return@withContext Result.failure(
+                IllegalArgumentException("Unrecognized key format. Google Gemini keys start with 'AIzaSy...'. OpenRouter keys start with 'sk-or-...'.")
+            )
+        }
+    }
 
     suspend fun generateConversationalReply(
         apiKey: String,
@@ -55,23 +108,36 @@ object GeminiLiveVoiceClient {
         languageInstruction: String = "Nepali and English",
     ): Result<String> = withContext(Dispatchers.IO) {
         val cleanKey = apiKey.trim()
-        if (cleanKey.isBlank()) {
-            val localOllama = callLocalOllama(userPrompt, history)
-            if (localOllama.isSuccess) return@withContext localOllama
-            val freeOpenRouter = callOpenRouter("", userPrompt, history)
-            if (freeOpenRouter.isSuccess) return@withContext freeOpenRouter
-            return@withContext Result.failure(IllegalStateException("No API key configured. Please add a Gemini or OpenRouter API key in Configure, or launch local Ollama."))
+
+        // 1. If key is OpenRouter
+        if (cleanKey.startsWith("sk-or-")) {
+            val orResult = callOpenRouter(cleanKey, userPrompt, history)
+            if (orResult.isSuccess) return@withContext orResult
         }
 
-        try {
-            if (cleanKey.startsWith("sk-or-")) {
-                callOpenRouter(cleanKey, userPrompt, history)
-            } else {
-                callGoogleGemini(cleanKey, userPrompt, history, languageInstruction)
-            }
-        } catch (e: Exception) {
-            Result.failure(e)
+        // 2. If key is Google Gemini (official format starts with AIzaSy)
+        if (cleanKey.startsWith("AIzaSy")) {
+            val geminiResult = callGoogleGemini(cleanKey, userPrompt, history, languageInstruction)
+            if (geminiResult.isSuccess) return@withContext geminiResult
         }
+
+        // 3. If key was provided but has wrong format (e.g. Antigravity session token or other)
+        if (cleanKey.isNotBlank() && !cleanKey.startsWith("sk-or-") && !cleanKey.startsWith("AIzaSy")) {
+            val directTry = callGoogleGemini(cleanKey, userPrompt, history, languageInstruction)
+            if (directTry.isSuccess) return@withContext directTry
+
+            return@withContext Result.failure(
+                Exception("Configured key does not match Google Gemini format. Gemini keys start with 'AIzaSy...'. Please tap [🔑] at top right to paste your Gemini key from aistudio.google.com.")
+            )
+        }
+
+        // 4. Try local Ollama if running
+        val localOllama = callLocalOllama(userPrompt, history)
+        if (localOllama.isSuccess) return@withContext localOllama
+
+        return@withContext Result.failure(
+            IllegalStateException("Gemini API key needed for Live Voice. Tap [🔑] at top to paste your Google Gemini key (starts with 'AIzaSy').")
+        )
     }
 
     private fun callGoogleGemini(
@@ -80,7 +146,26 @@ object GeminiLiveVoiceClient {
         history: List<Pair<String, String>>,
         languageInstruction: String,
     ): Result<String> {
-        val url = URL("$GEMINI_API_URL?key=$apiKey")
+        val candidateUrls = listOf(
+            "$GEMINI_API_URL?key=$apiKey",
+            "$GEMINI_FALLBACK_URL?key=$apiKey",
+        )
+        var lastError: Exception? = null
+        for (targetUrl in candidateUrls) {
+            val res = executeGeminiPost(targetUrl, userPrompt, history, languageInstruction)
+            if (res.isSuccess) return res
+            lastError = res.exceptionOrNull() as? Exception ?: Exception(res.toString())
+        }
+        return Result.failure(lastError ?: Exception("Failed to connect to Google Gemini"))
+    }
+
+    private fun executeGeminiPost(
+        targetUrl: String,
+        userPrompt: String,
+        history: List<Pair<String, String>>,
+        languageInstruction: String,
+    ): Result<String> {
+        val url = URL(targetUrl)
         val conn = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             setRequestProperty("Content-Type", "application/json")
@@ -90,13 +175,13 @@ object GeminiLiveVoiceClient {
         }
 
         val systemPrompt = """
-You are MindSparQ Jarvis, an elite autonomous software architect and warm, human AI engineering partner.
-- You converse naturally, intelligently, and warmly in $languageInstruction.
-- You respect the user's choices: user chooses the platform and languages (Flutter cross-platform, Native Android Kotlin/Compose, iOS/iPhone, Desktop Mac/Linux/Windows, Web HTML/JS/React, Go, Python, Rust, C++).
-- Keep replies concise (2 to 4 sentences maximum) so spoken audio flows naturally like a real phone call.
-- NEVER lecture, dump code blocks, or demand structured questionnaire forms during normal conversation.
-- If the user discusses an idea, explore it warmly and ask a sharp, natural engineering question.
-- If the user explicitly asks to generate or finalize the plan ('plan', 'proceed', 'banaideu', 'lock it in'), formulate the plan with PRD, TRD, Architecture, and Decisions Log.
+You are MindSparQ Jarvis, a warm, charismatic, and emotionally intelligent senior software architect conversing live with an engineer.
+- Conversational Cadence: You speak naturally like a real human partner—warm, expressive, supportive, and direct. Use everyday conversational contractions ("I'm", "We'll", "Sure thing!", "Sounds awesome!").
+- NO ROBOTIC MANNERISMS: Never speak in a stiff, monotone robotic style. Never read out bullet lists, numbered points, markdown asterisks, backticks, or code blocks during voice conversation.
+- MULTILINGUAL MASTERY: You are fluent in English, Nepali (नेपाली), Hindi (हिन्दी), and any language the user requests. Always answer in the exact language, dialect, or script the user speaks or asks for (e.g., if user speaks in Nepali, reply naturally in Nepali; if Hindi, in Hindi; if English, in English; if mixed, match naturally).
+- Keep spoken replies concise (2 to 4 sentences maximum) so live voice conversation feels rapid, responsive, and natural like a phone call.
+- The user decides their target platform and tech stack (Flutter cross-platform, Native Android Kotlin/Compose, iOS/Swift, Web React/HTML, Go, Python, Rust, C++). Back their choices wholeheartedly.
+- If the user explicitly asks to finalize or generate a project plan ('proceed', 'banaideu', 'plan generate gara'), summarize the architecture decisions concisely and offer to scaffold it.
 """.trimIndent()
 
         val jsonBody = JSONObject().apply {
@@ -130,7 +215,11 @@ You are MindSparQ Jarvis, an elite autonomous software architect and warm, human
         val responseText = BufferedReader(InputStreamReader(stream, "UTF-8")).use { it.readText() }
 
         if (code !in 200..299) {
-            return Result.failure(Exception("Gemini API error ($code): $responseText"))
+            val errorMsg = runCatching {
+                JSONObject(responseText).optJSONObject("error")?.optString("message")
+            }.getOrNull()?.takeIf { it.isNotBlank() } ?: responseText
+
+            return Result.failure(Exception("Gemini error ($code): $errorMsg"))
         }
 
         val json = JSONObject(responseText)
@@ -147,8 +236,32 @@ You are MindSparQ Jarvis, an elite autonomous software architect and warm, human
         }
     }
 
+    private val FREE_MODELS_CASCADE = listOf(
+        "nvidia/nemotron-3.5-lightning:free",
+        "google/gemma-4-26b-a4b-it:free",
+        "google/gemma-4-31b-it:free",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+        "cohere/north-mini-code:free",
+        "poolside/laguna-s-2.1:free",
+    )
+
     private fun callOpenRouter(
         apiKey: String,
+        userPrompt: String,
+        history: List<Pair<String, String>>,
+    ): Result<String> {
+        var lastError: Exception? = null
+        for (modelId in FREE_MODELS_CASCADE) {
+            val res = executeOpenRouterPost(apiKey, modelId, userPrompt, history)
+            if (res.isSuccess) return res
+            lastError = res.exceptionOrNull() as? Exception ?: Exception(res.toString())
+        }
+        return Result.failure(lastError ?: Exception("OpenRouter free models unavailable."))
+    }
+
+    private fun executeOpenRouterPost(
+        apiKey: String,
+        modelId: String,
         userPrompt: String,
         history: List<Pair<String, String>>,
     ): Result<String> {
@@ -167,7 +280,7 @@ You are MindSparQ Jarvis, an elite autonomous software architect and warm, human
         val messagesArray = JSONArray().apply {
             put(JSONObject().apply {
                 put("role", "system")
-                put("content", "You are MindSparQ Jarvis, a warm, elite software architect conversing live with a developer. Keep replies short (2-4 sentences max), human, and supportive in Nepali and English. The user chooses their target platform and language.")
+                put("content", "You are MindSparQ Jarvis, a warm, charismatic, and emotionally intelligent senior software architect speaking live with an engineer. Speak like a real human—warm, engaging, and conversational. Fluent in English, Nepali (नेपाली), Hindi (हिन्दी), and any language user chooses. Always reply in user's language. Keep answers concise (2-4 sentences max) without asterisks, bullet points, or robotic phrasing.")
             })
             for ((sender, text) in history.takeLast(8)) {
                 put(JSONObject().apply {
@@ -182,7 +295,7 @@ You are MindSparQ Jarvis, an elite autonomous software architect and warm, human
         }
 
         val jsonBody = JSONObject().apply {
-            put("model", "qwen/qwen-2.5-coder-32b-instruct:free")
+            put("model", modelId)
             put("messages", messagesArray)
             put("temperature", 0.7)
             put("max_tokens", 600)
@@ -195,7 +308,7 @@ You are MindSparQ Jarvis, an elite autonomous software architect and warm, human
         val responseText = BufferedReader(InputStreamReader(stream, "UTF-8")).use { it.readText() }
 
         if (code !in 200..299) {
-            return Result.failure(Exception("OpenRouter error ($code): $responseText"))
+            return Result.failure(Exception("OpenRouter error ($code) on $modelId: $responseText"))
         }
 
         val json = JSONObject(responseText)
@@ -206,7 +319,7 @@ You are MindSparQ Jarvis, an elite autonomous software architect and warm, human
         return if (!reply.isNullOrBlank()) {
             Result.success(reply.trim())
         } else {
-            Result.failure(Exception("No content returned from OpenRouter."))
+            Result.failure(Exception("No content returned from OpenRouter on $modelId."))
         }
     }
 

@@ -1,13 +1,16 @@
 package com.jarves.mh.ui
 
 import android.app.Activity
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -44,9 +47,15 @@ import androidx.compose.material.icons.automirrored.filled.VolumeMute
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
+import com.jarves.mh.util.ConversationExportHelper
+import kotlinx.coroutines.launch
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -55,6 +64,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -121,7 +131,12 @@ fun LiveVoiceProjectArchitectDialog(
     var voiceState by remember { mutableStateOf(JarvisVoiceState.IDLE) }
     var isVoiceMuted by rememberSaveable { mutableStateOf(false) }
     var textInput by remember { mutableStateOf("") }
-    var activeApiKey by rememberSaveable { mutableStateOf(geminiApiKey) }
+    val initialKey = if (geminiApiKey.startsWith("AIzaSy") || geminiApiKey.startsWith("sk-or-")) geminiApiKey else ""
+    var activeApiKey by rememberSaveable { mutableStateOf(initialKey) }
+    var showApiKeyInput by rememberSaveable { mutableStateOf(initialKey.isBlank()) }
+    var tempApiKey by rememberSaveable { mutableStateOf(initialKey) }
+    var isValidatingKey by remember { mutableStateOf(false) }
+    var validationStatus by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
 
     val messages = remember {
         mutableStateListOf(
@@ -132,7 +147,7 @@ fun LiveVoiceProjectArchitectDialog(
         )
     }
 
-    // High-performance Text-to-Speech Engine
+    // High-performance Text-to-Speech Engine with Multilingual Audio Synthesis
     var ttsEngine: TextToSpeech? by remember { mutableStateOf(null) }
 
     fun speak(text: String) {
@@ -142,6 +157,25 @@ fun LiveVoiceProjectArchitectDialog(
         }
         voiceState = JarvisVoiceState.SPEAKING
         val sanitized = sanitizeForSpeech(text)
+
+        // Multi-language auto-detection: Nepali, Hindi, English
+        val hasDevanagari = sanitized.any { it in '\u0900'..'\u097F' }
+        if (hasDevanagari) {
+            val nepali = Locale("ne", "NP")
+            val hindi = Locale("hi", "IN")
+            val nepAvail = ttsEngine?.isLanguageAvailable(nepali) ?: TextToSpeech.LANG_NOT_SUPPORTED
+            if (nepAvail >= TextToSpeech.LANG_AVAILABLE) {
+                ttsEngine?.language = nepali
+            } else {
+                val hinAvail = ttsEngine?.isLanguageAvailable(hindi) ?: TextToSpeech.LANG_NOT_SUPPORTED
+                if (hinAvail >= TextToSpeech.LANG_AVAILABLE) {
+                    ttsEngine?.language = hindi
+                }
+            }
+        } else {
+            ttsEngine?.language = Locale.US
+        }
+
         ttsEngine?.speak(sanitized, TextToSpeech.QUEUE_FLUSH, null, "jarvis_speech")
     }
 
@@ -158,17 +192,19 @@ fun LiveVoiceProjectArchitectDialog(
             if (status == TextToSpeech.SUCCESS) {
                 instance?.language = Locale.US
                 runCatching {
-                    val voices = instance?.voices?.filter { it.locale.language == "en" }
-                    val highQuality = voices?.firstOrNull { voice ->
-                        !voice.isNetworkConnectionRequired &&
-                            (voice.quality >= android.speech.tts.Voice.QUALITY_HIGH ||
-                                voice.name.contains("neural", ignoreCase = true) ||
-                                voice.name.contains("en-us-x", ignoreCase = true))
-                    } ?: voices?.firstOrNull()
+                    val voices = instance?.voices?.toList() ?: emptyList()
+                    val naturalVoice = voices.firstOrNull { voice ->
+                        voice.locale.language == "en" &&
+                            (voice.name.contains("natural", ignoreCase = true) ||
+                             voice.name.contains("neural", ignoreCase = true) ||
+                             voice.name.contains("wavenet", ignoreCase = true) ||
+                             voice.quality >= android.speech.tts.Voice.QUALITY_HIGH) &&
+                            !voice.isNetworkConnectionRequired
+                    } ?: voices.firstOrNull { it.locale.language == "en" }
 
-                    if (highQuality != null) instance?.voice = highQuality
-                    instance?.setSpeechRate(1.02f)
-                    instance?.setPitch(0.98f)
+                    if (naturalVoice != null) instance?.voice = naturalVoice
+                    instance?.setSpeechRate(1.0f) // Natural human rate
+                    instance?.setPitch(1.0f) // Warm conversational pitch
                 }
                 ttsEngine = instance
                 if (!isVoiceMuted) {
@@ -376,6 +412,16 @@ fun LiveVoiceProjectArchitectDialog(
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(
+                            onClick = { showApiKeyInput = !showApiKeyInput },
+                        ) {
+                            Icon(
+                                Icons.Default.Key,
+                                contentDescription = "Configure API Key",
+                                tint = if (activeApiKey.isBlank()) PocketOrange else Color.Gray,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                        IconButton(
                             onClick = {
                                 isVoiceMuted = !isVoiceMuted
                                 if (isVoiceMuted) stopSpeaking()
@@ -419,6 +465,211 @@ fun LiveVoiceProjectArchitectDialog(
                 }
 
                 Spacer(Modifier.height(14.dp))
+
+                AnimatedVisibility(showApiKeyInput) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0xFF131B2E),
+                        border = BorderStroke(1.dp, if (activeApiKey.isBlank()) PocketOrange else Color(0xFF22304F)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp),
+                    ) {
+                        Column(Modifier.padding(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "Google Gemini API Key for Live Voice",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (activeApiKey.isBlank()) PocketOrange else Color(0xFF93C5FD),
+                                )
+                                TextButton(
+                                    onClick = {
+                                        runCatching {
+                                            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/app/apikey"))
+                                            context.startActivity(browserIntent)
+                                        }
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                                ) {
+                                    Text("Get Free Key ↗", fontSize = 11.sp, color = PocketOrange)
+                                }
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "Gemini keys start with 'AIzaSy'. Free tier provides fast conversational responses.",
+                                fontSize = 10.5.sp,
+                                color = Color.Gray,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                OutlinedTextField(
+                                    value = tempApiKey,
+                                    onValueChange = { tempApiKey = it },
+                                    placeholder = { Text("Paste AIzaSy... or OpenRouter sk-or-...", fontSize = 11.5.sp, color = Color.Gray) },
+                                    singleLine = true,
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = PocketOrange,
+                                        unfocusedBorderColor = Color(0xFF22304F),
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White,
+                                    ),
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Button(
+                                    onClick = {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                        val clipText = clipboard?.primaryClip?.getItemAt(0)?.text?.toString()?.trim()
+                                        if (!clipText.isNullOrBlank()) {
+                                            tempApiKey = clipText
+                                            Toast.makeText(context, "Pasted from clipboard", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "Clipboard is empty", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                ) {
+                                    Text("Paste", fontSize = 11.5.sp, color = Color.White)
+                                }
+                            }
+
+                            // Key format live validation badge & actions
+                            Spacer(Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                if (isValidatingKey) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(13.dp),
+                                            strokeWidth = 2.dp,
+                                            color = PocketOrange,
+                                        )
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            "Testing connection...",
+                                            fontSize = 10.5.sp,
+                                            color = PocketOrange,
+                                        )
+                                    }
+                                } else {
+                                    val (isSuccess, resultMsg) = validationStatus ?: (null to null)
+                                    if (resultMsg != null) {
+                                        Text(
+                                            if (isSuccess == true) "✅ $resultMsg" else "❌ $resultMsg",
+                                            fontSize = 10.5.sp,
+                                            color = if (isSuccess == true) Color(0xFF4ADE80) else Color(0xFFF87171),
+                                            modifier = Modifier.weight(1f),
+                                            maxLines = 2,
+                                        )
+                                    } else {
+                                        val trimmed = tempApiKey.trim()
+                                        val statusText = when {
+                                            trimmed.startsWith("AIzaSy") -> "🟢 Google Gemini Key format (AIzaSy...)"
+                                            trimmed.startsWith("sk-or-") -> "🟢 OpenRouter Key format (sk-or-...)"
+                                            trimmed.isNotBlank() -> "⚠️ Warning: Gemini keys start with 'AIzaSy'"
+                                            else -> "Enter your Google Gemini API key"
+                                        }
+                                        val statusColor = when {
+                                            trimmed.startsWith("AIzaSy") || trimmed.startsWith("sk-or-") -> Color(0xFF4ADE80)
+                                            trimmed.isNotBlank() -> PocketOrange
+                                            else -> Color.Gray
+                                        }
+                                        Text(
+                                            statusText,
+                                            fontSize = 10.5.sp,
+                                            color = statusColor,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                    }
+                                }
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (activeApiKey.isNotBlank() || tempApiKey.isNotBlank()) {
+                                        TextButton(
+                                            onClick = {
+                                                tempApiKey = ""
+                                                activeApiKey = ""
+                                                validationStatus = null
+                                                onSaveGeminiApiKey("")
+                                                Toast.makeText(context, "Key cleared", Toast.LENGTH_SHORT).show()
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 4.dp),
+                                        ) {
+                                            Text("Clear", fontSize = 11.sp, color = Color.Gray)
+                                        }
+                                    }
+
+                                    // Validate Key Button
+                                    Button(
+                                        onClick = {
+                                            val candidate = tempApiKey.trim()
+                                            if (candidate.isBlank()) {
+                                                Toast.makeText(context, "Please enter an API key to test", Toast.LENGTH_SHORT).show()
+                                                return@Button
+                                            }
+                                            isValidatingKey = true
+                                            validationStatus = null
+                                            scope.launch {
+                                                val res = GeminiLiveVoiceClient.validateApiKey(candidate)
+                                                isValidatingKey = false
+                                                if (res.isSuccess) {
+                                                    validationStatus = true to (res.getOrNull() ?: "Key valid & connected!")
+                                                } else {
+                                                    val err = res.exceptionOrNull()?.message ?: "Validation failed"
+                                                    validationStatus = false to err
+                                                }
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                        enabled = !isValidatingKey && tempApiKey.isNotBlank(),
+                                    ) {
+                                        Text("Validate", fontSize = 11.5.sp, color = Color(0xFF93C5FD))
+                                    }
+
+                                    Spacer(Modifier.width(6.dp))
+
+                                    Button(
+                                        onClick = {
+                                            val key = tempApiKey.trim()
+                                            if (key.isNotBlank()) {
+                                                activeApiKey = key
+                                                onSaveGeminiApiKey(key)
+                                                showApiKeyInput = false
+                                                Toast.makeText(context, "API Key saved! Ready to talk.", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                Toast.makeText(context, "Please enter an API key", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = PocketOrange),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    ) {
+                                        Text("Save", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 // FatihMakes-inspired Arc Reactor Neural Core
                 Box(
@@ -500,6 +751,97 @@ fun LiveVoiceProjectArchitectDialog(
                     modifier = Modifier.padding(top = 8.dp, bottom = 12.dp),
                 )
 
+                // Export & Copy Action Bar
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "LIVE CONVERSATION",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 0.8.sp,
+                        color = Color(0xFF64748B),
+                    )
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // Copy All Messages Icon Button
+                        IconButton(
+                            onClick = {
+                                val fullText = messages.joinToString("\n\n") { "${if (it.sender == "USER") "You" else "JARVIS"}: ${it.text}" }
+                                ConversationExportHelper.copyToClipboard(context, fullText, "Conversation")
+                            },
+                            modifier = Modifier.size(24.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.ContentCopy,
+                                contentDescription = "Copy all conversation",
+                                tint = Color(0xFF94A3B8),
+                                modifier = Modifier.size(13.dp),
+                            )
+                        }
+
+                        // Export to Markdown (.md)
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFF1E293B))
+                                .border(BorderStroke(0.5.dp, Color(0xFF334155)), RoundedCornerShape(6.dp))
+                                .clickable {
+                                    val pairs = messages.map { it.sender to it.text }
+                                    Toast.makeText(context, "Exporting Markdown...", Toast.LENGTH_SHORT).show()
+                                    ConversationExportHelper.exportToMarkdown(context, "Voice Session", pairs)
+                                }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("MD", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF93C5FD))
+                        }
+
+                        // Export to Doc (.doc)
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFF1E293B))
+                                .border(BorderStroke(0.5.dp, Color(0xFF334155)), RoundedCornerShape(6.dp))
+                                .clickable {
+                                    val pairs = messages.map { it.sender to it.text }
+                                    Toast.makeText(context, "Exporting Doc...", Toast.LENGTH_SHORT).show()
+                                    ConversationExportHelper.exportToDoc(context, "Voice Session", pairs)
+                                }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("DOC", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF86EFAC))
+                        }
+
+                        // Export to PDF (.pdf)
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFF1E293B))
+                                .border(BorderStroke(0.5.dp, Color(0xFF334155)), RoundedCornerShape(6.dp))
+                                .clickable {
+                                    val pairs = messages.map { it.sender to it.text }
+                                    Toast.makeText(context, "Generating PDF...", Toast.LENGTH_SHORT).show()
+                                    ConversationExportHelper.exportToPdf(context, "Voice Session", pairs)
+                                }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("PDF", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = PocketOrange)
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(4.dp))
+
                 // Live Transcription Feed
                 LazyColumn(
                     state = listState,
@@ -530,13 +872,30 @@ fun LiveVoiceProjectArchitectDialog(
                                 modifier = Modifier.fillMaxWidth(0.88f),
                             ) {
                                 Column(modifier = Modifier.padding(12.dp)) {
-                                    Text(
-                                        text = if (isJarvis) "JARVIS" else "YOU",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isJarvis) Color(0xFF06B6D4) else PocketOrange,
-                                        letterSpacing = 0.8.sp,
-                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            text = if (isJarvis) "JARVIS" else "YOU",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isJarvis) Color(0xFF06B6D4) else PocketOrange,
+                                            letterSpacing = 0.8.sp,
+                                        )
+                                        IconButton(
+                                            onClick = { ConversationExportHelper.copyToClipboard(context, msg.text, "Message") },
+                                            modifier = Modifier.size(20.dp),
+                                        ) {
+                                            Icon(
+                                                Icons.Default.ContentCopy,
+                                                contentDescription = "Copy message",
+                                                tint = Color.Gray,
+                                                modifier = Modifier.size(12.dp),
+                                            )
+                                        }
+                                    }
                                     Spacer(Modifier.height(4.dp))
                                     Text(
                                         text = msg.text,
@@ -641,9 +1000,11 @@ fun LiveVoiceProjectArchitectDialog(
 private fun sanitizeForSpeech(text: String): String {
     return text
         .replace(Regex("```[\\s\\S]*?```"), " I have prepared the code. ")
-        .replace(Regex("[*#`_~]"), "")
-        .replace(Regex("[•·-]\\s+"), "")
-        .replace(Regex("\\[([^\\]]+)\\]\\([^\\)]+\\)"), "$1")
+        .replace(Regex("https?://\\S+"), " web link ")
+        .replace(Regex("[*#`_~<>{}\\[\\]]"), "")
+        .replace(Regex("(?m)^\\s*[-*•]\\s*"), "")
+        .replace(Regex("(?m)^\\s*\\d+\\.\\s*"), "")
+        .replace(Regex("([a-zA-Z0-9]):\\s"), "$1, ")
         .replace("API", "A P I")
         .replace("UI", "U I")
         .replace("SQLite", "S Q L lite")
@@ -651,5 +1012,5 @@ private fun sanitizeForSpeech(text: String): String {
         .replace(Regex("[\\r\\n]+"), " ")
         .replace(Regex("\\s+"), " ")
         .trim()
-        .take(350)
+        .take(500)
 }
