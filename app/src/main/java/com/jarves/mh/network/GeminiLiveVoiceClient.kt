@@ -56,7 +56,11 @@ object GeminiLiveVoiceClient {
     ): Result<String> = withContext(Dispatchers.IO) {
         val cleanKey = apiKey.trim()
         if (cleanKey.isBlank()) {
-            return@withContext Result.failure(IllegalStateException("Gemini API key is not configured."))
+            val localOllama = callLocalOllama(userPrompt, history)
+            if (localOllama.isSuccess) return@withContext localOllama
+            val freeOpenRouter = callOpenRouter("", userPrompt, history)
+            if (freeOpenRouter.isSuccess) return@withContext freeOpenRouter
+            return@withContext Result.failure(IllegalStateException("No API key configured. Please add a Gemini or OpenRouter API key in Configure, or launch local Ollama."))
         }
 
         try {
@@ -204,6 +208,50 @@ You are MindSparQ Jarvis, an elite autonomous software architect and warm, human
         } else {
             Result.failure(Exception("No content returned from OpenRouter."))
         }
+    }
+
+    private fun callLocalOllama(
+        userPrompt: String,
+        history: List<Pair<String, String>>,
+    ): Result<String> = runCatching {
+        val url = URL("http://127.0.0.1:11434/v1/chat/completions")
+        val conn = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            setRequestProperty("Content-Type", "application/json")
+            connectTimeout = 3_000
+            readTimeout = 15_000
+            doOutput = true
+        }
+        val messagesArray = JSONArray().apply {
+            put(JSONObject().apply {
+                put("role", "system")
+                put("content", "You are MindSparQ Jarvis, a warm, elite software architect and conversational partner. Keep replies short (1-3 sentences max) in English or Nepali.")
+            })
+            for ((sender, text) in history.takeLast(6)) {
+                put(JSONObject().apply {
+                    put("role", if (sender.equals("USER", ignoreCase = true)) "user" else "assistant")
+                    put("content", text)
+                })
+            }
+            put(JSONObject().apply {
+                put("role", "user")
+                put("content", userPrompt)
+            })
+        }
+        val jsonBody = JSONObject().apply {
+            put("model", "qwen2.5-coder:1.5b")
+            put("messages", messagesArray)
+            put("max_tokens", 300)
+        }
+        OutputStreamWriter(conn.outputStream, "UTF-8").use { it.write(jsonBody.toString()) }
+        val code = conn.responseCode
+        if (code in 200..299) {
+            val responseText = BufferedReader(InputStreamReader(conn.inputStream, "UTF-8")).use { it.readText() }
+            val choices = JSONObject(responseText).optJSONArray("choices")
+            val reply = choices?.optJSONObject(0)?.optJSONObject("message")?.optString("content")
+            if (!reply.isNullOrBlank()) return@runCatching reply.trim()
+        }
+        throw IllegalStateException("Ollama offline")
     }
 }
 

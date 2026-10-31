@@ -338,7 +338,7 @@ fun LiveVoiceProjectArchitectDialog(
             stopSpeaking()
             onDismiss()
         },
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
     ) {
         Surface(
             modifier = Modifier.fillMaxSize(),
