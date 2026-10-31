@@ -559,6 +559,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         syncKeyPool()
+        autoUpdateFreeModelsDaily()
         viewModelScope.launch {
             AndroidAppInstaller.events.collect { event ->
                 if (event.operationId != pendingAndroidInstallId) return@collect
@@ -2906,9 +2907,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun getCachedModels(kind: ProviderKind): List<com.jarves.mh.network.DiscoveredModel>? =
+        preferences.getCachedDiscoveredModels(kind)
+
     suspend fun discoverModels(profile: ProviderProfile, secret: String): ModelDiscoveryResult {
-        val key = secret.ifBlank { vault.get(profile.kind.name).orEmpty() }
-        return providerApi.discoverModels(profile.baseUrl, key, providerProtocolForAgent(profile, _state.value.agentKind))
+        val kind = profile.kind
+        val key = secret.ifBlank { vault.get(kind.name).orEmpty() }
+        val result = providerApi.discoverModels(profile.baseUrl, key, providerProtocolForAgent(profile, _state.value.agentKind))
+        if (result is ModelDiscoveryResult.Success && result.models.isNotEmpty()) {
+            preferences.saveCachedDiscoveredModels(kind, result.models)
+        }
+        return result
+    }
+
+    private fun autoUpdateFreeModelsDaily() {
+        viewModelScope.launch(Dispatchers.IO) {
+            listOf(ProviderKind.LLM_ROUTER, ProviderKind.OPENCODE_ZEN).forEach { kind ->
+                if (preferences.isDiscoveredModelsCacheExpired(kind)) {
+                    val key = vault.get(kind.name).orEmpty()
+                    val result = providerApi.discoverModels(kind.defaultBaseUrl, key, kind.protocol)
+                    if (result is ModelDiscoveryResult.Success && result.models.isNotEmpty()) {
+                        preferences.saveCachedDiscoveredModels(kind, result.models)
+                    }
+                }
+            }
+        }
     }
 
     suspend fun validateProvider(

@@ -100,6 +100,7 @@ fun UnifiedAiProviderSheet(
     isModelDownloaded: (String) -> Boolean = { false },
     onDownloadOfflineModel: (String, (Float) -> Unit, (Boolean) -> Unit) -> Unit = { _, _, _ -> },
     onDeleteOfflineModel: (String) -> Unit = {},
+    onGetCachedModels: (ProviderKind) -> List<DiscoveredModel>? = { null },
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -112,7 +113,7 @@ fun UnifiedAiProviderSheet(
     var newApiKey by rememberSaveable { mutableStateOf("") }
     var newKeyVisible by rememberSaveable { mutableStateOf(false) }
     var isDiscoveringModels by remember { mutableStateOf(false) }
-    var discoveredModels by remember { mutableStateOf<List<DiscoveredModel>>(emptyList()) }
+    var discoveredModels by remember(state.provider.kind) { mutableStateOf<List<DiscoveredModel>>(onGetCachedModels(state.provider.kind) ?: emptyList()) }
     var showOfflineModelsSection by rememberSaveable { mutableStateOf(false) }
 
     // Offline Model States
@@ -477,6 +478,14 @@ fun UnifiedAiProviderSheet(
                                 DiscoveredModel("qwen2.5-coder:1.5b", "Qwen 2.5 Coder 1.5B (Local Offline)", isFree = true),
                                 DiscoveredModel("qwen2.5-coder:0.5b", "Qwen 2.5 Coder 0.5B (Ultralight)", isFree = true),
                                 DiscoveredModel("deepseek-r1:1.5b", "DeepSeek R1 1.5B (Local Reasoning)", isFree = true),
+                            )
+                            ProviderKind.OPENCODE_ZEN -> listOf(
+                                DiscoveredModel("deepseek-v4-flash", "DeepSeek-V4 Flash (Zen Fast)", isFree = true),
+                                DiscoveredModel("qwen/qwen-2.5-coder-32b-instruct:free", "Qwen 2.5 Coder 32B (Verified Free)", isFree = true),
+                                DiscoveredModel("deepseek/deepseek-r1:free", "DeepSeek R1 (Verified Free · Reasoning)", isFree = true),
+                                DiscoveredModel("claude-3-5-sonnet", "Claude 3.5 Sonnet (Zen Free Tier)", isFree = true),
+                                DiscoveredModel("gpt-4o-mini", "GPT-4o Mini (Zen Free Tier)", isFree = true),
+                                DiscoveredModel("meta-llama/llama-3.3-70b-instruct:free", "Llama 3.3 70B (Verified Free)", isFree = true),
                             )
                             ProviderKind.NVIDIA_NIM -> listOf(
                                 DiscoveredModel("meta/llama-3.3-70b-instruct", "NVIDIA Llama 3.3 70B (Free Tier)", isFree = true),

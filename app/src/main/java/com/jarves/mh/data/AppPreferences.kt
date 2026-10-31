@@ -251,6 +251,41 @@ class AppPreferences(private val context: Context) {
 
     private fun providerPrefix(agent: AgentKind): String = "provider_${agent.stableId.replace('-', '_')}_"
 
+    fun getCachedDiscoveredModels(kind: ProviderKind): List<com.jarves.mh.network.DiscoveredModel>? {
+        val json = preferences.getString("cached_models_${kind.name}", null) ?: return null
+        return runCatching {
+            val array = JSONArray(json)
+            (0 until array.length()).map { idx ->
+                val obj = array.getJSONObject(idx)
+                com.jarves.mh.network.DiscoveredModel(
+                    id = obj.getString("id"),
+                    displayName = obj.optString("displayName", obj.getString("id")),
+                    isFree = obj.optBoolean("isFree", false)
+                )
+            }
+        }.getOrNull()
+    }
+
+    fun saveCachedDiscoveredModels(kind: ProviderKind, models: List<com.jarves.mh.network.DiscoveredModel>) {
+        val array = JSONArray()
+        models.forEach { m ->
+            val obj = JSONObject()
+            obj.put("id", m.id)
+            obj.put("displayName", m.displayName)
+            obj.put("isFree", m.isFree)
+            array.put(obj)
+        }
+        preferences.edit()
+            .putString("cached_models_${kind.name}", array.toString())
+            .putLong("cached_models_ts_${kind.name}", System.currentTimeMillis())
+            .apply()
+    }
+
+    fun isDiscoveredModelsCacheExpired(kind: ProviderKind, maxAgeMillis: Long = 24 * 60 * 60 * 1000L): Boolean {
+        val ts = preferences.getLong("cached_models_ts_${kind.name}", 0L)
+        return System.currentTimeMillis() - ts > maxAgeMillis
+    }
+
     fun saveProjects(projects: List<Project>) {
         val arr = JSONArray()
         projects.forEach { p ->

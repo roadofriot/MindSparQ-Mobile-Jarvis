@@ -64,7 +64,8 @@ class ProviderApiClient(private val context: Context? = null) {
                     lastProviderMessage = providerErrorMessage(response.body)
                 }
                 response.code in 200..299 -> {
-                    val models = ModelResponseParser.parse(response.body)
+                    val isOpenRouter = isOpenRouterCatalogEndpoint(endpoint) || protocol == ProviderProtocol.OPENROUTER || baseUrl.contains("openrouter.ai")
+                    val models = ModelResponseParser.parse(response.body, onlyFree = isOpenRouter)
                     if (models.isNotEmpty()) return@withContext ModelDiscoveryResult.Success(models, endpoint)
                     lastMessage = text(
                         R.string.rt_api_empty_model_list,
@@ -337,7 +338,7 @@ class ProviderApiClient(private val context: Context? = null) {
 }
 
 object ModelResponseParser {
-    fun parse(json: String): List<DiscoveredModel> = runCatching {
+    fun parse(json: String, onlyFree: Boolean = false): List<DiscoveredModel> = runCatching {
         val trimmed = json.trim()
         val array = when {
             trimmed.startsWith("[") -> JSONArray(trimmed)
@@ -349,7 +350,12 @@ object ModelResponseParser {
         buildList {
             for (index in 0 until array.length()) {
                 when (val item = array.opt(index)) {
-                    is String -> add(DiscoveredModel(item))
+                    is String -> {
+                        val free = item.endsWith(":free", ignoreCase = true)
+                        if (!onlyFree || free) {
+                            add(DiscoveredModel(item, item, isFree = free))
+                        }
+                    }
                     is JSONObject -> {
                         val rawId = item.optString("id").ifBlank { item.optString("name") }.ifBlank { item.optString("model") }
                         val id = rawId.removePrefix("models/")
@@ -377,7 +383,10 @@ object ModelResponseParser {
                                     it.optString(field, "0").toDoubleOrNull() == 0.0
                                 }
                             } == true
-                            add(DiscoveredModel(id, label, free))
+
+                            if (!onlyFree || free) {
+                                add(DiscoveredModel(id, label, free))
+                            }
                         }
                     }
                 }

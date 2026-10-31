@@ -521,6 +521,7 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             onDeleteOfflineModel = { modelId ->
                 viewModel.deleteOfflineModel(modelId)
             },
+            onGetCachedModels = viewModel::getCachedModels,
         )
     }
 }
@@ -2641,6 +2642,7 @@ private fun RootScreenHost(
                     onRefreshAntigravityModels = viewModel::refreshAntigravityModels,
                     onSetAntigravityModel = viewModel::setAntigravityModel,
                     onSetAntigravityEffort = viewModel::setAntigravityEffort,
+                    onGetCachedModels = viewModel::getCachedModels,
                 )
                 RootScreen.SETTINGS -> SettingsScreen(
                     state = state,

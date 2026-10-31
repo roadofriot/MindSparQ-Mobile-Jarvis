@@ -193,6 +193,7 @@ fun AgentScreen(
     onRefreshAntigravityModels: () -> Unit = {},
     onSetAntigravityModel: (String) -> Unit = {},
     onSetAntigravityEffort: (String) -> Unit = {},
+    onGetCachedModels: (ProviderKind) -> List<DiscoveredModel>? = { null },
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -219,7 +220,7 @@ fun AgentScreen(
     var newKeyName by rememberSaveable(selectedKind) { mutableStateOf("") }
     var newApiKey by rememberSaveable(selectedKind) { mutableStateOf("") }
     var newKeyVisible by rememberSaveable(selectedKind, savedKeys.isEmpty()) { mutableStateOf(savedKeys.isEmpty()) }
-    var models by remember(selectedKind, baseUrl) { mutableStateOf(emptyList<DiscoveredModel>()) }
+    var models by remember(selectedKind, baseUrl) { mutableStateOf(onGetCachedModels(selectedKind) ?: emptyList()) }
     var modelSearch by rememberSaveable(selectedKind) { mutableStateOf("") }
     var showModels by rememberSaveable { mutableStateOf(false) }
     var isDiscovering by remember { mutableStateOf(false) }
@@ -1041,7 +1042,7 @@ fun AgentScreen(
                                 )
                                 Spacer(Modifier.height(4.dp))
                                 Text(
-                                    "Switch to 'API Key Engine' above to connect Google Gemini (2.5 Flash / Pro), OpenRouter free models, NVIDIA NIM, and local Ollama.",
+                                    "Switch to 'API Key Engine' above to connect Google Gemini (4 Argon, 4.0, 3.8 & 2.5), OpenRouter free models, NVIDIA NIM, and local Ollama.",
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -2264,7 +2265,12 @@ private fun defaultModelsForProvider(kind: ProviderKind, context: android.conten
         DiscoveredModel("deepseek-v4-flash", "DeepSeek-V4 Flash"),
     )
     ProviderKind.OPENCODE_ZEN -> listOf(
-        DiscoveredModel(ProviderKind.OPENCODE_ZEN.defaultModel, context.getString(R.string.md_model_opencode_default)),
+        DiscoveredModel("deepseek-v4-flash", "DeepSeek-V4 Flash (Zen Fast)"),
+        DiscoveredModel("qwen/qwen-2.5-coder-32b-instruct:free", "Qwen 2.5 Coder 32B (Verified Free)"),
+        DiscoveredModel("deepseek/deepseek-r1:free", "DeepSeek R1 (Verified Free · Reasoning)"),
+        DiscoveredModel("claude-3-5-sonnet", "Claude 3.5 Sonnet (Zen Free Tier)"),
+        DiscoveredModel("gpt-4o-mini", "GPT-4o Mini (Zen Free Tier)"),
+        DiscoveredModel("meta-llama/llama-3.3-70b-instruct:free", "Llama 3.3 70B (Verified Free)"),
     )
     ProviderKind.ANTHROPIC -> listOf(
         DiscoveredModel("claude-3-7-sonnet-20250219", "Claude 3.7 Sonnet (Hybrid)"),

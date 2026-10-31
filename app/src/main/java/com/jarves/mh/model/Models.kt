@@ -20,14 +20,14 @@ enum class ProviderKind(
 ) {
     GEMINI(
         "Google Gemini",
-        "Gemini 2.5 Flash & Pro via API key",
+        "Gemini 4 Argon, 4.0 & 3.8 Flash/Pro via API key",
         ProviderProtocol.OPENAI_CHAT,
         "https://generativelanguage.googleapis.com/v1beta/openai",
-        "gemini-2.5-flash",
+        "gemini-4.0-flash",
         fixedBaseUrl = true,
         fixedProtocol = true,
     ),
-    LLM_ROUTER("OpenRouter", "Free & paid models via OpenRouter", ProviderProtocol.OPENROUTER, "https://openrouter.ai/api", "qwen/qwen-2.5-coder-32b-instruct:free"),
+    LLM_ROUTER("OpenRouter", "Latest verified free models via OpenRouter", ProviderProtocol.OPENROUTER, "https://openrouter.ai/api", "qwen/qwen-2.5-coder-32b-instruct:free"),
     OLLAMA(
         "Ollama (Local / Offline)",
         "Local open-source models on 127.0.0.1:11434",
