@@ -5083,6 +5083,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(queuedFollowUps = pendingFollowUps.toList()) }
     }
 
+    fun isDeviceOnline(): Boolean = runCatching {
+        val app = getApplication<Application>()
+        val connectivity = app.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val network = connectivity?.activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
+        network?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+    }.getOrDefault(false)
+
     private fun startPrompt(project: Project, prompt: String, attachments: List<ChatAttachment>) {
         // requestText is sent to the agent, so it stays English; the chat title is user-facing.
         val requestText = prompt.trim().ifBlank { "Please review the attached files." }
@@ -5117,10 +5124,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             appendLine("</attached_files>")
         }
         failedApiKeyIds.clear()
-        val runtimeToUse = if (_state.value.agentKind == AgentKind.ANTIGRAVITY &&
-            _state.value.provider.kind != ProviderKind.CUSTOM &&
-            (vault.contains(_state.value.provider.kind.name) || _state.value.provider.kind == ProviderKind.OLLAMA) &&
-            _state.value.antigravityAuth.status != AntigravityAuthStatus.SIGNED_IN) {
+        val isOnline = isDeviceOnline()
+        val effectiveProvider = if (!isOnline && _state.value.provider.kind != ProviderKind.OLLAMA) {
+            val offlineProfile = preferences.loadProvider(vault, state.value.agentKind).copy(
+                kind = ProviderKind.OLLAMA,
+                model = "qwen2.5-coder:1.5b",
+                baseUrl = "http://127.0.0.1:11434/v1",
+            )
+            _state.update {
+                it.copy(
+                    provider = offlineProfile,
+                    toastMessage = "No internet connection detected. Auto-switched to Offline Local Model (qwen2.5-coder:1.5b).",
+                    liveProcess = listOf(ActivityItem("Offline Mode", "No internet connection. Executing via local Ollama engine.", true)),
+                )
+            }
+            offlineProfile
+        } else {
+            state.value.provider
+        }
+
+        val runtimeToUse = if ((_state.value.agentKind == AgentKind.ANTIGRAVITY && !isOnline) ||
+            (_state.value.agentKind == AgentKind.ANTIGRAVITY &&
+            effectiveProvider.kind != ProviderKind.CUSTOM &&
+            (vault.contains(effectiveProvider.kind.name) || effectiveProvider.kind == ProviderKind.OLLAMA) &&
+            _state.value.antigravityAuth.status != AntigravityAuthStatus.SIGNED_IN)) {
             if (installer.isAgentInstalled(AgentKind.DEEPSEEK_HARNESS)) dshRuntime else claudeRuntime
         } else {
             activeRuntime()
@@ -5130,7 +5157,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             project = project,
             prompt = runtimePrompt,
             history = history,
-            provider = state.value.provider,
+            provider = effectiveProvider,
         )
         viewModelScope.launch {
             activeRuntimeRequest?.let { request ->

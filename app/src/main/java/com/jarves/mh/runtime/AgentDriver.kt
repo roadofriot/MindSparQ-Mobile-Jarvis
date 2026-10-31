@@ -80,6 +80,17 @@ class AgentRegistry(drivers: List<AgentDriver>) {
                         AgentCapability.RESUME,
                     ),
                 ),
+                BuiltInAgentDriver(
+                    AgentKind.OPENCODE,
+                    deepSeek,
+                    setOf(
+                        AgentCapability.API_KEY,
+                        AgentCapability.PROVIDER_PICKER,
+                        AgentCapability.MODEL_PICKER,
+                        AgentCapability.RESUME,
+                        AgentCapability.INTERACTIVE_APPROVALS,
+                    ),
+                ),
             ),
         )
     }

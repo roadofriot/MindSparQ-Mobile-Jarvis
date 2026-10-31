@@ -478,6 +478,7 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             onCleanAndroid = viewModel::cleanAndroidProject,
             onInstallAndroidTools = { viewModel.installDevStack(DevStack.ANDROID) },
             onOpenAiHub = { showUnifiedAiSheet = true },
+            onSelectAgent = viewModel::selectAgent,
             onExecuteHandover = viewModel::handoverTask,
             onDismissHandover = viewModel::dismissHandover,
         )
@@ -493,6 +494,7 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
         UnifiedAiProviderSheet(
             state = state,
             onDismiss = { showUnifiedAiSheet = false },
+            onSelectAgent = viewModel::selectAgent,
             onSelectProvider = { providerKind ->
                 val profile = ProviderProfile(kind = providerKind)
                 val currentKey = viewModel.getSavedApiKey(providerKind)
@@ -1636,6 +1638,7 @@ private fun toolchainDownloadSummary(selected: Set<DevStack>, agent: AgentKind):
             AgentKind.CLAUDE_CODE -> CLAUDE_RUNTIME_DOWNLOAD_MB
             AgentKind.DEEPSEEK_HARNESS -> DSH_RUNTIME_DOWNLOAD_MB
             AgentKind.ANTIGRAVITY -> AGY_RUNTIME_DOWNLOAD_MB
+            AgentKind.OPENCODE -> 35
         } +
         (if (DevStack.PYTHON in selected) PYTHON_RUNTIME_DOWNLOAD_MB else 0) +
         (if (DevStack.ANDROID in selected) ANDROID_RUNTIME_DOWNLOAD_MB else 0)
@@ -1719,11 +1722,13 @@ private fun AgentChoiceRow(
         AgentKind.CLAUDE_CODE -> Color(0xFFD97757)
         AgentKind.DEEPSEEK_HARNESS -> Color(0xFF4D6BFE)
         AgentKind.ANTIGRAVITY -> Color(0xFF4285F4)
+        AgentKind.OPENCODE -> Color(0xFF00B4D8)
     }
     val mark = when (agent) {
         AgentKind.CLAUDE_CODE -> "CC"
         AgentKind.DEEPSEEK_HARNESS -> "DS"
         AgentKind.ANTIGRAVITY -> "AG"
+        AgentKind.OPENCODE -> "OC"
     }
     Row(
         modifier = Modifier
@@ -2611,6 +2616,7 @@ private fun RootScreenHost(
                     onGoogleSignOut = viewModel::logoutAntigravity,
                     onPushProjectToGitHub = viewModel::pushProjectToGitHub,
                     onOpenAiHub = onOpenAiHub,
+                    onOpenTerminal = { showQuickTerminal = true },
                 )
                 RootScreen.AGENT -> AgentScreen(
                     state = state,
@@ -3661,6 +3667,7 @@ private fun ProjectsScreen(
     onSaveGeminiApiKey: (String) -> Unit = {},
     onPushProjectToGitHub: (Project, String, Boolean, (Boolean, String) -> Unit) -> Unit = { _, _, _, _ -> },
     onOpenAiHub: () -> Unit = {},
+    onOpenTerminal: () -> Unit = {},
 ) {
     var showCreate by rememberSaveable { mutableStateOf(false) }
     var showLiveVoiceArchitect by rememberSaveable { mutableStateOf(false) }
@@ -3794,227 +3801,113 @@ private fun ProjectsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                Text(stringResource(R.string.projects_hero_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Text(stringResource(R.string.projects_hero_desc), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(12.dp))
-
-                // Developer Cloud & GitHub Profile Banner
-                val isGoogleConnected = state.antigravityAuth.status == AntigravityAuthStatus.SIGNED_IN
-                val isGitHubConnected = state.githubAuthStatus == GitHubAuthStatus.CONNECTED
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                    modifier = Modifier.fillMaxWidth().clickable { showUserProfile = true }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            Image(
-                                painter = painterResource(R.drawable.mindsparq_logo),
-                                contentDescription = "Logo",
-                                modifier = Modifier.size(28.dp).clip(CircleShape)
-                            )
-                            Spacer(Modifier.width(10.dp))
-                            Column {
-                                Text("Developer Cloud & GitHub Profile", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        if (isGoogleConnected) "Google: Connected" else "Google: Not linked",
-                                        fontSize = 11.sp,
-                                        color = if (isGoogleConnected) Color(0xFF2EA043) else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Text(" · ", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text(
-                                        if (isGitHubConnected) "@${state.githubLogin}" else "GitHub: Not linked",
-                                        fontSize = 11.sp,
-                                        color = if (isGitHubConnected) Color(0xFF2EA043) else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                        TextButton(onClick = { showUserProfile = true }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
-                            Text("Manage", fontSize = 12.sp)
-                        }
+                    Column {
+                        Text(
+                            text = "MindSparQ Jarvis",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = "Autonomous Mobile Engineering Studio",
+                            fontSize = 11.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(onClick = onOpenAiHub) {
+                        Icon(Icons.Default.Tune, "AI Settings", tint = PocketOrange, modifier = Modifier.size(20.dp))
                     }
                 }
                 Spacer(Modifier.height(10.dp))
 
-                // Unified AI Engine & Failover Vault Banner
+                // Sleek Minimal Unified Status Strip
+                val isGoogleConnected = state.antigravityAuth.status == AntigravityAuthStatus.SIGNED_IN
+                val isGitHubConnected = state.githubAuthStatus == GitHubAuthStatus.CONNECTED
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                    modifier = Modifier.fillMaxWidth().clickable { onOpenAiHub() }
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+                    modifier = Modifier.fillMaxWidth().clickable { onOpenAiHub() },
                 ) {
                     Row(
-                        modifier = Modifier.padding(12.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            Surface(
-                                shape = CircleShape,
-                                color = PocketOrange.copy(alpha = 0.15f),
-                                modifier = Modifier.size(28.dp),
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        Icons.Default.AutoAwesome,
-                                        contentDescription = null,
-                                        tint = PocketOrange,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.width(10.dp))
-                            Column {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("AI Engine & Failover Vault", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                    Spacer(Modifier.width(6.dp))
-                                    Surface(
-                                        shape = RoundedCornerShape(4.dp),
-                                        color = Color(0xFF10B981).copy(alpha = 0.15f),
-                                    ) {
-                                        Text(
-                                            "READY",
-                                            fontSize = 8.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF10B981),
-                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                        )
-                                    }
-                                }
+                            Box(
+                                modifier = Modifier
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF10B981)),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "${state.agentKind.title} · ${state.provider.model.substringAfterLast('/').take(24)}",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (isGitHubConnected) {
                                 Text(
-                                    "${if (state.agentKind == AgentKind.ANTIGRAVITY) "Google Antigravity CLI" else state.provider.kind.title} · ${state.provider.model.ifBlank { "Multi-Key Auto-Failover" }}",
-                                    fontSize = 11.sp,
+                                    "@${state.githubLogin?.take(12).orEmpty()}",
+                                    fontSize = 10.5.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    modifier = Modifier.clickable { showUserProfile = true },
                                 )
+                                Spacer(Modifier.width(6.dp))
                             }
+                            Text(
+                                "Configure",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = PocketOrange,
+                            )
                         }
-                        TextButton(onClick = { onOpenAiHub() }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
-                            Text("Configure", fontSize = 12.sp)
-                        }
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Button(
-                        onClick = onCreateQuickProject,
-                        modifier = Modifier.weight(1f).height(48.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Chat,
-                            contentDescription = null,
-                            modifier = Modifier.size(17.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = stringResource(R.string.projects_quick_project),
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp,
-                            maxLines = 1,
-                            softWrap = false,
-                        )
-                    }
-                    OutlinedButton(
-                        onClick = { showCreate = true },
-                        modifier = Modifier.weight(1f).height(48.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = stringResource(R.string.projects_new_project),
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp,
-                            maxLines = 1,
-                            softWrap = false,
-                        )
                     }
                 }
                 Spacer(Modifier.height(12.dp))
 
-                // ── Live Voice Idea Architect Card ──
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showLiveVoiceArchitect = true },
-                    shape = RoundedCornerShape(18.dp),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-                    border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
+                // Sleek Minimal Icon Action Bar with Hints
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        modifier = Modifier.padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(44.dp),
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    Icons.Default.Mic,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    "Live Voice Idea Architect",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xFFF59E0B).copy(alpha = 0.2f),
-                                ) {
-                                    Text(
-                                        "AI LIVE",
-                                        fontSize = 8.5.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = Color(0xFFF59E0B),
-                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                "Speak your idea naturally · AI clarifies & creates on 'Proceed'",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Icon(
-                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                    DashboardIconButton(
+                        icon = Icons.Default.Chat,
+                        hint = "Quick",
+                        onClick = onCreateQuickProject,
+                    )
+                    DashboardIconButton(
+                        icon = Icons.Default.Add,
+                        hint = "New",
+                        onClick = { showCreate = true },
+                    )
+                    DashboardIconButton(
+                        icon = Icons.Default.Mic,
+                        hint = "Voice",
+                        tint = PocketOrange,
+                        onClick = { showLiveVoiceArchitect = true },
+                    )
+                    DashboardIconButton(
+                        icon = Icons.Default.Terminal,
+                        hint = "Terminal",
+                        onClick = onOpenTerminal,
+                    )
+                    DashboardIconButton(
+                        icon = Icons.Default.Download,
+                        hint = "Import",
+                        onClick = { importExpanded = !importExpanded },
+                    )
                 }
                 Spacer(Modifier.height(10.dp))
                 val isImportExpanded = importExpanded || state.projectImporting || state.gitCloneRunning
@@ -4648,6 +4541,44 @@ private fun ProjectsScreen(
                     }
                 }
             }
+        )
+    }
+}
+
+@Composable
+private fun DashboardIconButton(
+    icon: ImageVector,
+    hint: String,
+    tint: Color = MaterialTheme.colorScheme.onSurface,
+    onClick: () -> Unit,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+            modifier = Modifier.size(50.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = hint,
+                    tint = tint,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = hint,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -5331,9 +5262,11 @@ private fun WorkspaceScreen(
     onCleanAndroid: () -> Unit,
     onInstallAndroidTools: () -> Unit,
     onOpenAiHub: () -> Unit = {},
+    onSelectAgent: (AgentKind) -> Unit = {},
     onExecuteHandover: () -> Unit = {},
     onDismissHandover: () -> Unit = {},
 ) {
+    var agentMenuExpanded by remember { mutableStateOf(false) }
     var exportSelection by remember(state.activeProject?.id) { mutableStateOf(ExportSelection()) }
     var exportSelectionMode by remember(state.activeProject?.id) { mutableStateOf(false) }
     BackHandler {
@@ -5562,22 +5495,135 @@ private fun WorkspaceScreen(
                         // Agent first so it always stays visible; a long chat title is cut with "…".
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.clickable { onOpenAiHub() }
                         ) {
-                            Text(
-                                "${if (state.agentKind == AgentKind.ANTIGRAVITY) state.agentKind.localizedTitle() else state.provider.kind.localizedTitle()} · ${activeChat?.localizedTitle() ?: stringResource(R.string.tab_chat)}",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Icon(
-                                Icons.Default.Tune,
-                                contentDescription = "AI Settings",
-                                modifier = Modifier.size(11.dp),
-                                tint = PocketOrange
-                            )
+                            Box {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                                    modifier = Modifier.clickable { agentMenuExpanded = true },
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .background(
+                                                    color = when (state.agentKind) {
+                                                        AgentKind.CLAUDE_CODE -> Color(0xFFD97706)
+                                                        AgentKind.DEEPSEEK_HARNESS -> Color(0xFF3B82F6)
+                                                        AgentKind.ANTIGRAVITY -> Color(0xFF10B981)
+                                                        AgentKind.OPENCODE -> Color(0xFF00B4D8)
+                                                    },
+                                                    shape = CircleShape,
+                                                ),
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(
+                                            when (state.agentKind) {
+                                                AgentKind.CLAUDE_CODE -> "Claude"
+                                                AgentKind.DEEPSEEK_HARNESS -> "DSH"
+                                                AgentKind.ANTIGRAVITY -> "AGY"
+                                                AgentKind.OPENCODE -> "OpenCode"
+                                            },
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                        )
+                                        Spacer(Modifier.width(2.dp))
+                                        Icon(
+                                            Icons.Default.KeyboardArrowDown,
+                                            contentDescription = "Switch Agent",
+                                            modifier = Modifier.size(14.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                                DropdownMenu(
+                                    expanded = agentMenuExpanded,
+                                    onDismissRequest = { agentMenuExpanded = false },
+                                ) {
+                                    Text(
+                                        "SELECT CODING AGENT CLI",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                                    )
+                                    AgentKind.entries.forEach { agent ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(8.dp)
+                                                            .background(
+                                                                color = when (agent) {
+                                                                    AgentKind.CLAUDE_CODE -> Color(0xFFD97706)
+                                                                    AgentKind.DEEPSEEK_HARNESS -> Color(0xFF3B82F6)
+                                                                    AgentKind.ANTIGRAVITY -> Color(0xFF10B981)
+                                                                    AgentKind.OPENCODE -> Color(0xFF00B4D8)
+                                                                },
+                                                                shape = CircleShape,
+                                                            ),
+                                                    )
+                                                    Spacer(Modifier.width(8.dp))
+                                                    Text(
+                                                        agent.localizedTitle(),
+                                                        fontWeight = if (agent == state.agentKind) FontWeight.Bold else FontWeight.Normal,
+                                                    )
+                                                }
+                                            },
+                                            trailingIcon = {
+                                                if (agent == state.agentKind) {
+                                                    Icon(Icons.Default.Check, contentDescription = "Active", tint = PocketOrange, modifier = Modifier.size(16.dp))
+                                                }
+                                            },
+                                            onClick = {
+                                                agentMenuExpanded = false
+                                                onSelectAgent(agent)
+                                            },
+                                        )
+                                    }
+                                    HorizontalDivider()
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Default.Tune, contentDescription = null, tint = PocketOrange, modifier = Modifier.size(16.dp))
+                                                Spacer(Modifier.width(8.dp))
+                                                Text("AI Providers & Keys...", fontSize = 13.sp)
+                                            }
+                                        },
+                                        onClick = {
+                                            agentMenuExpanded = false
+                                            onOpenAiHub()
+                                        },
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.width(6.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.clickable { onOpenAiHub() }
+                            ) {
+                                val shortModel = (if (state.agentKind == AgentKind.ANTIGRAVITY) state.antigravityModel else state.provider.model)
+                                    .substringAfterLast('/')
+                                    .take(16)
+                                Text(
+                                    "· $shortModel",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Spacer(Modifier.width(3.dp))
+                                Icon(
+                                    Icons.Default.Tune,
+                                    contentDescription = "AI Settings",
+                                    modifier = Modifier.size(11.dp),
+                                    tint = PocketOrange,
+                                )
+                            }
                         }
                     }
                 },

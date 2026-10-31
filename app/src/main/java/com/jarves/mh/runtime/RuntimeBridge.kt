@@ -61,12 +61,16 @@ object RuntimeLaunchConfigBuilder {
         )
         when (profile.kind.protocol) {
             com.jarves.mh.model.ProviderProtocol.CLAUDE_LOGIN -> {
-                require(!authToken.isNullOrBlank()) { "Enter a Claude subscription token first" }
-                environment["CLAUDE_CODE_OAUTH_TOKEN"] = authToken
-                // Claude Code gives API-key variables precedence over OAuth. Explicitly
-                // clear them so a previous API provider can never shadow this token.
-                environment["ANTHROPIC_API_KEY"] = ""
-                environment["ANTHROPIC_AUTH_TOKEN"] = ""
+                require(!authToken.isNullOrBlank()) { "Enter a Claude subscription token or API key first" }
+                if (authToken.startsWith("sk-ant-") || authToken.startsWith("sk-")) {
+                    environment["ANTHROPIC_API_KEY"] = authToken
+                    environment["ANTHROPIC_AUTH_TOKEN"] = authToken
+                    environment["CLAUDE_CODE_OAUTH_TOKEN"] = ""
+                } else {
+                    environment["CLAUDE_CODE_OAUTH_TOKEN"] = authToken
+                    environment["ANTHROPIC_API_KEY"] = ""
+                    environment["ANTHROPIC_AUTH_TOKEN"] = ""
+                }
             }
             com.jarves.mh.model.ProviderProtocol.ANTHROPIC -> {
                 environment["ANTHROPIC_BASE_URL"] = profile.baseUrl.trimEnd('/')

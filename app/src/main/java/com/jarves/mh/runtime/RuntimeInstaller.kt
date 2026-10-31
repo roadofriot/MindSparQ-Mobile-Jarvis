@@ -234,7 +234,7 @@ class RuntimeInstaller(private val context: Context) {
 
         when (agent) {
             com.jarves.mh.model.AgentKind.CLAUDE_CODE -> ensureClaudeInstalled(proot, 0.985f, onProgress)
-            com.jarves.mh.model.AgentKind.DEEPSEEK_HARNESS -> ensureDshInstalled(proot, 0.985f, onProgress)
+            com.jarves.mh.model.AgentKind.DEEPSEEK_HARNESS, com.jarves.mh.model.AgentKind.OPENCODE -> ensureDshInstalled(proot, 0.985f, onProgress)
             com.jarves.mh.model.AgentKind.ANTIGRAVITY -> ensureAgyInstalled(proot, 0.985f, onProgress)
         }
         onProgress(RuntimeInstallProgress(str(R.string.rt_install_setup_complete), 1f))
@@ -253,7 +253,7 @@ class RuntimeInstaller(private val context: Context) {
         val runtime = installedRuntime()
         when (agent) {
             com.jarves.mh.model.AgentKind.CLAUDE_CODE -> ensureClaudeInstalled(runtime.proot, 0.05f, onProgress)
-            com.jarves.mh.model.AgentKind.DEEPSEEK_HARNESS -> ensureDshInstalled(runtime.proot, 0.05f, onProgress)
+            com.jarves.mh.model.AgentKind.DEEPSEEK_HARNESS, com.jarves.mh.model.AgentKind.OPENCODE -> ensureDshInstalled(runtime.proot, 0.05f, onProgress)
             com.jarves.mh.model.AgentKind.ANTIGRAVITY -> ensureAgyInstalled(runtime.proot, 0.05f, onProgress)
         }
         onProgress(RuntimeInstallProgress(str(R.string.rt_install_ready, agent.localizedTitle(context)), 1f))
@@ -266,7 +266,7 @@ class RuntimeInstaller(private val context: Context) {
                 isInstalled() && File(rootfs, CLAUDE_GUEST_PATH.removePrefix("/")).canExecute() &&
                     !claudeMarker.readTextOrNull().isNullOrBlank()
             }
-            com.jarves.mh.model.AgentKind.DEEPSEEK_HARNESS -> isInstalled() &&
+            com.jarves.mh.model.AgentKind.DEEPSEEK_HARNESS, com.jarves.mh.model.AgentKind.OPENCODE -> isInstalled() &&
                 // /usr/local/bin/dsh is an absolute guest symlink. File.exists() follows it
                 // against Android's host root and therefore reports false outside PRoot.
                 File(rootfs, "usr/local/lib/dsh/node_modules/.bin/dsh").isFile &&
@@ -356,7 +356,10 @@ class RuntimeInstaller(private val context: Context) {
         dshMarker.readTextOrNull()
             ?.trim()
             ?.takeIf { isAgentInstalled(com.jarves.mh.model.AgentKind.DEEPSEEK_HARNESS) }
-            ?.let { put(com.jarves.mh.model.AgentKind.DEEPSEEK_HARNESS, it) }
+            ?.let {
+                put(com.jarves.mh.model.AgentKind.DEEPSEEK_HARNESS, it)
+                put(com.jarves.mh.model.AgentKind.OPENCODE, it)
+            }
 
         agyMarker.readTextOrNull()
             ?.trim()
@@ -400,7 +403,7 @@ class RuntimeInstaller(private val context: Context) {
         val runtime = installedRuntime()
         when (agent) {
             com.jarves.mh.model.AgentKind.CLAUDE_CODE -> updateClaude(runtime, expectedVersion, onProgress)
-            com.jarves.mh.model.AgentKind.DEEPSEEK_HARNESS -> updateDsh(runtime, expectedVersion, onProgress)
+            com.jarves.mh.model.AgentKind.DEEPSEEK_HARNESS, com.jarves.mh.model.AgentKind.OPENCODE -> updateDsh(runtime, expectedVersion, onProgress)
             com.jarves.mh.model.AgentKind.ANTIGRAVITY -> updateAgy(runtime, expectedVersion, onProgress)
         }
         onProgress(RuntimeInstallProgress(str(R.string.rt_install_version_ready, agent.localizedTitle(context), expectedVersion), 1f, event = RuntimeInstallEvent.COMPLETED))
@@ -648,6 +651,15 @@ class RuntimeInstaller(private val context: Context) {
         if (!isAgentInstalled(com.jarves.mh.model.AgentKind.DEEPSEEK_HARNESS)) return
         applyDshAndroidCompatibility(File(rootfs, "usr/local/lib/dsh"), dshMarker.readTextOrNull().orEmpty())
         dshAndroidCompatibilityMarker.writeText(DSH_ANDROID_COMPATIBILITY_VERSION)
+        runCatching {
+            val opencodeBin = File(rootfs, "usr/local/bin/opencode")
+            if (!opencodeBin.exists()) {
+                java.nio.file.Files.createSymbolicLink(
+                    opencodeBin.toPath(),
+                    java.nio.file.Paths.get("/usr/local/bin/dsh"),
+                )
+            }
+        }
     }
 
     private fun applyDshAndroidCompatibility(dshRoot: File, version: String) {

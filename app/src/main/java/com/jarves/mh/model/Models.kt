@@ -27,7 +27,7 @@ enum class ProviderKind(
         fixedBaseUrl = true,
         fixedProtocol = true,
     ),
-    LLM_ROUTER("OpenRouter", "Free & paid models via OpenRouter", ProviderProtocol.OPENROUTER, "https://openrouter.ai/api", "meta-llama/llama-3.3-70b-instruct:free"),
+    LLM_ROUTER("OpenRouter", "Free & paid models via OpenRouter", ProviderProtocol.OPENROUTER, "https://openrouter.ai/api", "qwen/qwen-2.5-coder-32b-instruct:free"),
     OLLAMA(
         "Ollama (Local / Offline)",
         "Local open-source models on 127.0.0.1:11434",
@@ -89,6 +89,12 @@ enum class AgentKind(
         "Antigravity CLI",
         "Google's official coding agent · Google account",
         "39.9 MB",
+    ),
+    OPENCODE(
+        "opencode",
+        "OpenCode CLI",
+        "Open-source coding agent · multi-model CLI",
+        "35.0 MB",
     ),
     ;
 
@@ -181,6 +187,15 @@ fun providersForAgent(agent: AgentKind): List<ProviderKind> = when (agent) {
         ProviderKind.CUSTOM,
     )
     AgentKind.ANTIGRAVITY -> listOf(
+        ProviderKind.GEMINI,
+        ProviderKind.LLM_ROUTER,
+        ProviderKind.OLLAMA,
+        ProviderKind.NVIDIA_NIM,
+        ProviderKind.DEEPSEEK,
+        ProviderKind.CUSTOM,
+    )
+    AgentKind.OPENCODE -> listOf(
+        ProviderKind.OPENCODE_ZEN,
         ProviderKind.GEMINI,
         ProviderKind.LLM_ROUTER,
         ProviderKind.OLLAMA,

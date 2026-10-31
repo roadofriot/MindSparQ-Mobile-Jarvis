@@ -846,6 +846,7 @@ fun AgentScreen(
                                     AgentKind.ANTIGRAVITY -> "Antigravity CLI"
                                     AgentKind.DEEPSEEK_HARNESS -> "API Key Engine"
                                     AgentKind.CLAUDE_CODE -> "Claude Code"
+                                    AgentKind.OPENCODE -> "OpenCode CLI"
                                 }
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
@@ -936,13 +937,12 @@ fun AgentScreen(
                             }
                         }
                     } else if (!viewedAgentInstalled) {
-                        val viewedAgentTitle = stringResource(
-                            when (viewedAgent) {
-                                AgentKind.CLAUDE_CODE -> R.string.agent_title_claude
-                                AgentKind.DEEPSEEK_HARNESS -> R.string.agent_title_deepseek
-                                AgentKind.ANTIGRAVITY -> R.string.agent_title_antigravity
-                            },
-                        )
+                        val viewedAgentTitle = when (viewedAgent) {
+                            AgentKind.CLAUDE_CODE -> stringResource(R.string.agent_title_claude)
+                            AgentKind.DEEPSEEK_HARNESS -> stringResource(R.string.agent_title_deepseek)
+                            AgentKind.ANTIGRAVITY -> stringResource(R.string.agent_title_antigravity)
+                            AgentKind.OPENCODE -> viewedAgent.title
+                        }
                         Spacer(Modifier.height(8.dp))
                         Surface(
                             shape = RoundedCornerShape(14.dp),
@@ -2229,21 +2229,24 @@ private fun AgentSelectionDot(selected: Boolean) {
 /** Provides popular default models for providers when discovery hasn't been run or is unavailable. */
 private fun defaultModelsForProvider(kind: ProviderKind, context: android.content.Context): List<DiscoveredModel> = when (kind) {
     ProviderKind.GEMINI -> listOf(
+        DiscoveredModel("gemini-4.0-flash", "Gemini 4.0 Flash (Next-Gen Autonomous)"),
+        DiscoveredModel("gemini-4-argon", "Gemini 4 Argon (Experimental Reasoning)"),
+        DiscoveredModel("gemini-3.8-pro", "Gemini 3.8 Pro (Ultra-Deep Logic)"),
+        DiscoveredModel("gemini-3.8-flash", "Gemini 3.8 Flash (High-Speed)"),
         DiscoveredModel("gemini-2.5-flash", "Gemini 2.5 Flash (Fast, Latest)"),
         DiscoveredModel("gemini-2.5-pro", "Gemini 2.5 Pro (Deep Reasoning)"),
         DiscoveredModel("gemini-2.5-flash-lite", "Gemini 2.5 Flash-Lite (Low Latency)"),
         DiscoveredModel("gemini-2.0-flash", "Gemini 2.0 Flash (Stable)"),
     )
     ProviderKind.LLM_ROUTER -> listOf(
-        DiscoveredModel("meta-llama/llama-3.3-70b-instruct:free", "Llama 3.3 70B (Free · 128k)"),
-        DiscoveredModel("deepseek/deepseek-r1:free", "DeepSeek R1 (Free · Reasoning)"),
-        DiscoveredModel("qwen/qwen-2.5-coder-32b-instruct:free", "Qwen 2.5 Coder 32B (Free · Coding)"),
-        DiscoveredModel("google/gemini-2.0-flash-exp:free", "Gemini 2.0 Flash Exp (Free)"),
-        DiscoveredModel("mistralai/mistral-7b-instruct:free", "Mistral 7B Instruct (Free)"),
-        DiscoveredModel("deepseek/deepseek-chat:free", "DeepSeek Chat (Free)"),
-        DiscoveredModel("deepseek/deepseek-r1", "DeepSeek R1"),
-        DiscoveredModel("anthropic/claude-3.7-sonnet", "Claude 3.7 Sonnet"),
-        DiscoveredModel("openai/gpt-4o", "GPT-4o"),
+        DiscoveredModel("qwen/qwen-2.5-coder-32b-instruct:free", "Qwen 2.5 Coder 32B (Verified Free)"),
+        DiscoveredModel("deepseek/deepseek-r1:free", "DeepSeek R1 (Verified Free · Reasoning)"),
+        DiscoveredModel("deepseek/deepseek-chat:free", "DeepSeek Chat (Verified Free)"),
+        DiscoveredModel("google/gemini-2.0-flash-exp:free", "Gemini 2.0 Flash Exp (Verified Free)"),
+        DiscoveredModel("google/gemini-2.0-flash-thinking-exp:free", "Gemini 2.0 Flash Thinking (Verified Free)"),
+        DiscoveredModel("mistralai/mistral-small-24b-instruct-2501:free", "Mistral Small 24B (Verified Free)"),
+        DiscoveredModel("meta-llama/llama-3.2-3b-instruct:free", "Llama 3.2 3B (Verified Free)"),
+        DiscoveredModel("meta-llama/llama-3.1-8b-instruct:free", "Llama 3.1 8B (Verified Free)"),
     )
     ProviderKind.OLLAMA -> listOf(
         DiscoveredModel("qwen2.5-coder:1.5b", "Qwen 2.5 Coder 1.5B (Local · Fast)"),

@@ -114,7 +114,7 @@ class ClaudeRuntimeBridge(
         val secret = secretFor(provider).orEmpty().ifBlank { localServerPlaceholderKey(provider) }
         if (secret.isBlank() && provider.kind != ProviderKind.OLLAMA && provider.kind != ProviderKind.CUSTOM) {
             val message = if (provider.kind == ProviderKind.CLAUDE) {
-                "No Claude subscription token is saved. Add one from Agent → AI provider."
+                "No Claude subscription token or Anthropic API key is saved. Add one from Agent → AI provider."
             } else {
                 "No API key is saved for ${provider.kind.title}."
             }
