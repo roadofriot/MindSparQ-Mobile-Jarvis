@@ -238,12 +238,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return selected.apply { mkdirs() }
     }
 
+    val chatDelegate: ChatDelegate = ChatDelegate(this)
     val terminalDelegate: TerminalDelegate = TerminalDelegate(this)
     val androidDelegate: AndroidBuildDelegate = AndroidBuildDelegate(this)
     val agentDelegate: AgentDelegate = AgentDelegate(this)
     val projectDelegate: ProjectDelegate = ProjectDelegate(this)
     val workspaceDelegate: WorkspaceDelegate = WorkspaceDelegate(this)
-    val chatDelegate: ChatDelegate = ChatDelegate(this)
 
     init {
         syncKeyPool()
@@ -294,10 +294,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         vault.remove(LEGACY_GITHUB_TOKEN_KEY)
         viewModelScope.launch { projectDelegate.refreshGitHubConnection() }
         RuntimeSetupController.restore(application)
-        viewModelScope.launch { dshRuntime.events.collect(chatDelegate::onRuntimeEvent) }
-        viewModelScope.launch { antigravityRuntime.events.collect(chatDelegate::onRuntimeEvent) }
-        viewModelScope.launch { claudeRuntime.events.collect(chatDelegate::onRuntimeEvent) }
-        viewModelScope.launch { RuntimeSetupController.snapshot.collect(agentDelegate::onSetupSnapshot) }
+        viewModelScope.launch { dshRuntime.events.collect { event -> chatDelegate.onRuntimeEvent(event) } }
+        viewModelScope.launch { antigravityRuntime.events.collect { event -> chatDelegate.onRuntimeEvent(event) } }
+        viewModelScope.launch { claudeRuntime.events.collect { event -> chatDelegate.onRuntimeEvent(event) } }
+        viewModelScope.launch { RuntimeSetupController.snapshot.collect { snapshot -> agentDelegate.onSetupSnapshot(snapshot) } }
         viewModelScope.launch { agentDelegate.bootstrap() }
         viewModelScope.launch {
             antigravityAuthController.state.collect { auth ->

@@ -671,7 +671,7 @@ class WorkspaceDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
                             ?.let { displayName = cursor.getString(it) ?: displayName }
                     }
                 }
-                val safeName = chatDelegate.chatDelegate.sanitizeAttachmentName(displayName)
+                val safeName = chatDelegate.sanitizeAttachmentName(displayName)
                 val stem = safeName.substringBeforeLast('.', safeName)
                 val extension = safeName.substringAfterLast('.', "").let { if (it.isBlank()) "" else ".$it" }
                 var destination = File(parent, safeName)

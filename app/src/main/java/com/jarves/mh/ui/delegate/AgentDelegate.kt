@@ -321,13 +321,6 @@ class AgentDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
         antigravityRuntime.configureProjectRoot(projectId, rootPath)
     }
 
-    init {
-        syncKeyPool()
-        viewModelScope.launch { RuntimeSetupController.snapshot.collect(::onSetupSnapshot) }
-        viewModelScope.launch { claudeRuntime.events.collect(chatDelegate::onRuntimeEvent) }
-        viewModelScope.launch { bootstrap() }
-    }
-
     internal suspend fun bootstrap() {
         if (!supportsArm64Runtime(android.os.Build.SUPPORTED_ABIS, System.getProperty("os.arch"))) {
             _state.update {
