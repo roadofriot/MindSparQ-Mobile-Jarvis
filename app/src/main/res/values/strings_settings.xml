@@ -112,4 +112,35 @@
     <string name="st_update_channel_overridden">Overridden · debug only</string>
     <string name="st_use_and_check">Use &amp; check</string>
     <string name="st_use_custom_model_id">Use custom model ID:</string>
+
+    <!-- Multi-API failover chain -->
+    <string name="st_multi_api_failover">Multi-API Failover Chain</string>
+    <string name="st_multi_api_failover_help">Try multiple AI providers through the selected CLI. The first successful response wins. Keys are added once per provider.</string>
+    <string name="st_failover_providers">Failover Providers</string>
+    <string name="st_failover_providers_help">Providers tried in order (or all at once in parallel mode). Leave blank to use only the active provider.</string>
+    <string name="st_failover_parallel">Try all providers at once (parallel)</string>
+    <string name="st_failover_parallel_help">All providers in the chain are contacted simultaneously; the first reply wins. Uses more requests but is faster.</string>
+    <string name="st_add_failover_provider">+ Add provider to chain</string>
+    <string name="st_failover_chain_empty">No failover providers configured. Only the active provider will be used.</string>
+    <string name="st_failover_chain_active">Failover chain: %1$s</string>
+    <string name="st_failover_remove">Remove from chain</string>
+    <string name="st_failover_clear">Clear chain</string>
+
+    <!-- Workspace integrity -->
+    <string name="st_integrity_title">Workspace Integrity</string>
+    <string name="st_integrity_subtitle">Periodic SHA-256 snapshot verification of your project workspaces. Runs fully offline — no cloud calls required.</string>
+    <string name="st_integrity_check_now">Check Integrity Now</string>
+    <string name="st_integrity_check_all">Check All Projects</string>
+    <string name="st_integrity_checking">Checking integrity…</string>
+    <string name="st_integrity_check_interval">Check interval (minutes)</string>
+    <string name="st_integrity_check_interval_help">How often to automatically verify workspace snapshots. 0 disables automatic checks.</string>
+    <string name="st_integrity_status_ok">No changes detected</string>
+    <string name="st_integrity_status_changed">Files changed since last check</string>
+    <string name="st_integrity_status_first">First check — baseline recorded</string>
+    <string name="st_integrity_status_error">Check failed</string>
+    <string name="st_integrity_last_checked">Last checked: %1$s</string>
+    <string name="st_integrity_changed_files">%1$d file(s) changed</string>
+    <string name="st_integrity_no_projects">No projects available to check.</string>
+    <string name="st_integrity_reset_baseline">Reset Baseline</string>
+    <string name="st_integrity_reset_baseline_help">Clear the stored snapshot; the next check will record a new baseline.</string>
 </resources>

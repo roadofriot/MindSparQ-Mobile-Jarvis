@@ -45,8 +45,12 @@ object GeminiLiveVoiceClient {
         }
     }
 
-    private const val GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-    private const val GEMINI_FALLBACK_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+    private val GEMINI_MODELS = listOf(
+        "gemini-flash-lite-latest",
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+        "gemini-3.8-flash",
+    )
     private const val OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
     suspend fun validateApiKey(apiKey: String): Result<String> = withContext(Dispatchers.IO) {
@@ -76,7 +80,8 @@ object GeminiLiveVoiceClient {
                     throw Exception("OpenRouter auth failed (HTTP $code): $msg")
                 }
             }
-        } else if (cleanKey.startsWith("AIzaSy")) {
+        } else {
+            // Google Gemini API keys can start with 'AQ.' or 'AIzaSy'
             return@withContext runCatching {
                 val url = URL("https://generativelanguage.googleapis.com/v1beta/models?key=$cleanKey")
                 val conn = (url.openConnection() as HttpURLConnection).apply {
@@ -86,7 +91,7 @@ object GeminiLiveVoiceClient {
                 }
                 val code = conn.responseCode
                 if (code in 200..299) {
-                    "Google Gemini API Key valid & connected (Gemini 2.0 Flash)!"
+                    "Google Gemini API Key valid & connected (gemini-flash-lite)!"
                 } else {
                     val errStream = conn.errorStream ?: conn.inputStream
                     val errText = BufferedReader(InputStreamReader(errStream, "UTF-8")).use { it.readText() }
@@ -94,10 +99,6 @@ object GeminiLiveVoiceClient {
                     throw Exception("Gemini auth failed (HTTP $code): $msg")
                 }
             }
-        } else {
-            return@withContext Result.failure(
-                IllegalArgumentException("Unrecognized key format. Google Gemini keys start with 'AIzaSy...'. OpenRouter keys start with 'sk-or-...'.")
-            )
         }
     }
 
@@ -113,30 +114,24 @@ object GeminiLiveVoiceClient {
         if (cleanKey.startsWith("sk-or-")) {
             val orResult = callOpenRouter(cleanKey, userPrompt, history)
             if (orResult.isSuccess) return@withContext orResult
+            // If OpenRouter failed, try local Ollama before reporting failure
+            val localOllama = callLocalOllama(userPrompt, history)
+            if (localOllama.isSuccess) return@withContext localOllama
+            return@withContext orResult
         }
 
-        // 2. If key is Google Gemini (official format starts with AIzaSy)
-        if (cleanKey.startsWith("AIzaSy")) {
+        // 2. If key is Google Gemini / Antigravity (starts with AQ. or AIzaSy or other non-OpenRouter key)
+        if (cleanKey.isNotBlank()) {
             val geminiResult = callGoogleGemini(cleanKey, userPrompt, history, languageInstruction)
             if (geminiResult.isSuccess) return@withContext geminiResult
         }
 
-        // 3. If key was provided but has wrong format (e.g. Antigravity session token or other)
-        if (cleanKey.isNotBlank() && !cleanKey.startsWith("sk-or-") && !cleanKey.startsWith("AIzaSy")) {
-            val directTry = callGoogleGemini(cleanKey, userPrompt, history, languageInstruction)
-            if (directTry.isSuccess) return@withContext directTry
-
-            return@withContext Result.failure(
-                Exception("Configured key does not match Google Gemini format. Gemini keys start with 'AIzaSy...'. Please tap [🔑] at top right to paste your Gemini key from aistudio.google.com.")
-            )
-        }
-
-        // 4. Try local Ollama if running
+        // 3. Try local Ollama if running
         val localOllama = callLocalOllama(userPrompt, history)
         if (localOllama.isSuccess) return@withContext localOllama
 
         return@withContext Result.failure(
-            IllegalStateException("Gemini API key needed for Live Voice. Tap [🔑] at top to paste your Google Gemini key (starts with 'AIzaSy').")
+            IllegalStateException("Please tap [🔑] at top to configure your Google Gemini (AQ. / AIzaSy...) or OpenRouter (sk-or-...) API key.")
         )
     }
 
@@ -146,12 +141,9 @@ object GeminiLiveVoiceClient {
         history: List<Pair<String, String>>,
         languageInstruction: String,
     ): Result<String> {
-        val candidateUrls = listOf(
-            "$GEMINI_API_URL?key=$apiKey",
-            "$GEMINI_FALLBACK_URL?key=$apiKey",
-        )
         var lastError: Exception? = null
-        for (targetUrl in candidateUrls) {
+        for (model in GEMINI_MODELS) {
+            val targetUrl = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
             val res = executeGeminiPost(targetUrl, userPrompt, history, languageInstruction)
             if (res.isSuccess) return res
             lastError = res.exceptionOrNull() as? Exception ?: Exception(res.toString())
@@ -227,10 +219,22 @@ You are MindSparQ Jarvis, a warm, charismatic, and emotionally intelligent senio
         val candidate = candidates?.optJSONObject(0)
         val content = candidate?.optJSONObject("content")
         val parts = content?.optJSONArray("parts")
-        val reply = parts?.optJSONObject(0)?.optString("text")
 
-        return if (!reply.isNullOrBlank()) {
-            Result.success(reply.trim())
+        val sb = StringBuilder()
+        if (parts != null) {
+            for (i in 0 until parts.length()) {
+                val partObj = parts.optJSONObject(i)
+                val text = partObj?.optString("text")
+                if (!text.isNullOrBlank() && !text.equals("null", ignoreCase = true)) {
+                    if (sb.isNotEmpty()) sb.append(" ")
+                    sb.append(text.trim())
+                }
+            }
+        }
+        val reply = sb.toString().trim()
+
+        return if (reply.isNotBlank()) {
+            Result.success(reply)
         } else {
             Result.failure(Exception("No reply generated from Gemini."))
         }
@@ -297,8 +301,8 @@ You are MindSparQ Jarvis, a warm, charismatic, and emotionally intelligent senio
         val jsonBody = JSONObject().apply {
             put("model", modelId)
             put("messages", messagesArray)
-            put("temperature", 0.7)
-            put("max_tokens", 600)
+            put("temperature", 0.6)
+            put("max_tokens", 350)
         }
 
         OutputStreamWriter(conn.outputStream, "UTF-8").use { it.write(jsonBody.toString()) }
@@ -314,10 +318,20 @@ You are MindSparQ Jarvis, a warm, charismatic, and emotionally intelligent senio
         val json = JSONObject(responseText)
         val choices = json.optJSONArray("choices")
         val message = choices?.optJSONObject(0)?.optJSONObject("message")
-        val reply = message?.optString("content")
 
-        return if (!reply.isNullOrBlank()) {
-            Result.success(reply.trim())
+        val rawContent = message?.opt("content")
+        var reply = if (rawContent != null && rawContent != JSONObject.NULL) rawContent.toString().trim() else ""
+        if (reply.isBlank() || reply.equals("null", ignoreCase = true)) {
+            val rawText = message?.opt("text")
+            if (rawText != null && rawText != JSONObject.NULL) reply = rawText.toString().trim()
+        }
+        if (reply.isBlank() || reply.equals("null", ignoreCase = true)) {
+            val rawReasoning = message?.opt("reasoning")
+            if (rawReasoning != null && rawReasoning != JSONObject.NULL) reply = rawReasoning.toString().trim()
+        }
+
+        return if (reply.isNotBlank() && !reply.equals("null", ignoreCase = true)) {
+            Result.success(reply)
         } else {
             Result.failure(Exception("No content returned from OpenRouter on $modelId."))
         }

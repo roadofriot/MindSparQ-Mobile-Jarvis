@@ -47,6 +47,7 @@ import com.jarves.mh.model.WorkspaceEntry
 import com.jarves.mh.model.projectSlug
 import com.jarves.mh.model.generateQuickChatIdentity
 import com.jarves.mh.model.providerProtocolForAgent
+import com.jarves.mh.model.resolveFailoverChain
 import com.jarves.mh.network.ConnectionValidation
 import com.jarves.mh.network.ModelDiscoveryResult
 import com.jarves.mh.network.ProviderApiClient
@@ -74,6 +75,8 @@ import com.jarves.mh.runtime.readTailText
 import com.jarves.mh.runtime.supportsArm64Runtime
 import com.jarves.mh.runtime.AndroidAppInstaller
 import com.jarves.mh.runtime.AndroidBuildPhase
+import com.jarves.mh.runtime.IntegrityScheduler
+import com.jarves.mh.runtime.WorkspaceCheckpoints
 import com.mindsparq.jarvis.ai.gateway.KeyPoolManager
 import com.mindsparq.jarvis.ai.gateway.ManagedKey
 import com.jarves.mh.runtime.AndroidBuildRecord
@@ -419,6 +422,10 @@ data class AppUiState(
     val appUpdateDownloadedBytes: Long = 0L,
     val appUpdateTotalBytes: Long = -1L,
     val appUpdateError: String? = null,
+    // --- Integrity check state ---
+    val integrityResults: Map<String, IntegrityScheduler.IntegrityResult> = emptyMap(),
+    val integrityChecking: Boolean = false,
+    val integrityCheckIntervalMinutes: Long = 30,
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -432,6 +439,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val vault = ApiKeyVault(application)
     private val preferences = AppPreferences(application)
     private val keyPoolManager = KeyPoolManager()
+    private val workspaceCheckpoints = WorkspaceCheckpoints(application.filesDir, application)
+    private val integrityScheduler = IntegrityScheduler(application, workspaceCheckpoints)
 
     private fun syncKeyPool() {
         ProviderKind.entries.forEach { kind ->
@@ -2061,9 +2070,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun getSavedApiKey(kind: ProviderKind): String =
         vault.get(kind.name) ?: if (kind == ProviderKind.OLLAMA || kind == ProviderKind.CUSTOM) "no-key-required" else ""
 
-    fun saveGeminiApiKey(secret: String) {
-        vault.put(ProviderKind.GEMINI.name, secret.trim())
+    fun saveApiKey(kind: ProviderKind, secret: String) {
+        vault.put(kind.name, secret.trim())
         syncKeyPool()
+    }
+
+    fun saveGeminiApiKey(secret: String) {
+        saveApiKey(ProviderKind.GEMINI, secret)
     }
 
     fun getSavedApiKeys(kind: ProviderKind): List<ApiKeyInfo> = vault.list(kind.name)
@@ -2088,6 +2101,96 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         refreshActiveApiKey(kind)
         syncKeyPool()
         return vault.list(kind.name)
+    }
+
+    // --- Multi-API failover chain (through the selected CLI) ---
+
+    /** Returns the configured failover chain for the current provider, parsed from the stored comma-separated list. */
+    fun getFailoverChain(): List<ProviderKind> = resolveFailoverChain(_state.value.provider.failoverChain)
+
+    /** Returns whether all providers in the chain are tried in parallel (true) or in sequence (false). */
+    fun isFailoverParallel(): Boolean = _state.value.provider.failoverParallel
+
+    /** Saves the failover chain as a comma-separated list on the current provider profile. */
+    fun saveFailoverChain(providers: List<ProviderKind>) {
+        val current = _state.value.provider
+        val next = current.copy(
+            failoverChain = providers.joinToString(",") { it.name },
+        )
+        preferences.saveProvider(next, _state.value.agentKind)
+        _state.update { it.copy(provider = next) }
+    }
+
+    /** Toggles parallel mode on the current provider profile. */
+    fun toggleFailoverParallel() {
+        val current = _state.value.provider
+        val next = current.copy(failoverParallel = !current.failoverParallel)
+        preferences.saveProvider(next, _state.value.agentKind)
+        _state.update { it.copy(provider = next) }
+    }
+
+    // --- Workspace integrity checks (periodic, cloud-free) ---
+
+    /** Returns the last integrity result for a project, or null if never checked. */
+    fun integrityResultFor(projectId: String): IntegrityScheduler.IntegrityResult? =
+        integrityScheduler.lastResult(projectId)
+
+    /** Returns all integrity results. */
+    fun allIntegrityResults(): List<IntegrityScheduler.IntegrityResult> =
+        integrityScheduler.allResults()
+
+    /** Returns the configured check interval in minutes. */
+    fun integrityCheckIntervalMinutes(): Long = integrityScheduler.getCheckIntervalMinutes()
+
+    /** Sets the check interval in minutes. */
+    fun setIntegrityCheckIntervalMinutes(minutes: Long) {
+        integrityScheduler.setCheckInterval(minutes)
+        _state.update { it.copy(integrityCheckIntervalMinutes = minutes) }
+    }
+
+    /** Runs an integrity check for a single project now. */
+    suspend fun runIntegrityCheck(projectId: String, projectName: String, workspace: File) {
+        _state.update { it.copy(integrityChecking = true) }
+        try {
+            val result = integrityScheduler.checkNow(projectId, projectName, workspace)
+            _state.update { current ->
+                current.copy(
+                    integrityChecking = false,
+                    integrityResults = current.integrityResults + (projectId to result),
+                )
+            }
+        } catch (e: Exception) {
+            _state.update { it.copy(integrityChecking = false) }
+        }
+    }
+
+    /** Runs integrity checks for all projects with workspaces. */
+    suspend fun runIntegrityCheckAll() {
+        _state.update { it.copy(integrityChecking = true) }
+        try {
+            val projects = _state.value.projects.mapNotNull { project ->
+                val workspace = File(getApplication<Application>().filesDir, "workspaces/${project.id}")
+                if (workspace.isDirectory) Triple(project.id, project.name, workspace) else null
+            }
+            val results = integrityScheduler.checkAll(projects)
+            val resultMap = results.associate { it.projectId to it }
+            _state.update { current ->
+                current.copy(
+                    integrityChecking = false,
+                    integrityResults = current.integrityResults + resultMap,
+                )
+            }
+        } catch (e: Exception) {
+            _state.update { it.copy(integrityChecking = false) }
+        }
+    }
+
+    /** Resets the baseline snapshot for a project (next check will be a first-check). */
+    fun resetIntegrityBaseline(projectId: String) {
+        integrityScheduler.resetBaseline(projectId)
+        _state.update { current ->
+            current.copy(integrityResults = current.integrityResults - projectId)
+        }
     }
 
     private fun refreshActiveApiKey(kind: ProviderKind) {
@@ -2948,6 +3051,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             models,
             profile.openRouterProviderOrder,
             profile.openRouterAllowFallbacks,
+        )
+    }
+
+    // --- Multi-API discovery / validation across the failover chain ---
+
+    /**
+     * Discovers models across the current provider's failover chain (plus the active provider).
+     * Returns the first successful result. When parallel is true, all providers are queried at once.
+     * API keys are resolved per-provider from the vault — each key is added only once.
+     */
+    suspend fun discoverModelsMulti(parallel: Boolean = false): ModelDiscoveryResult {
+        val profile = _state.value.provider
+        val chain = resolveFailoverChain(profile.failoverChain)
+        // Always include the active provider first (or last in parallel mode it doesn't matter).
+        val profiles = (listOf(profile) + chain.filter { it != profile.kind }.map { kind ->
+            preferences.loadProvider(vault, _state.value.agentKind).copy(kind = kind)
+        }).distinctBy { it.kind }
+        return providerApi.discoverModelsMulti(
+            profiles = profiles,
+            parallel = parallel,
+            apiKeyResolver = { kind -> vault.get(kind.name).orEmpty() },
+        )
+    }
+
+    /**
+     * Validates the model across the current provider's failover chain (plus the active provider).
+     * Returns the first successful validation. When parallel is true, all providers are validated at once.
+     * API keys are resolved per-provider from the vault — each key is added only once.
+     */
+    suspend fun validateMulti(model: String, parallel: Boolean = false): ConnectionValidation {
+        val profile = _state.value.provider
+        val chain = resolveFailoverChain(profile.failoverChain)
+        val profiles = (listOf(profile) + chain.filter { it != profile.kind }.map { kind ->
+            preferences.loadProvider(vault, _state.value.agentKind).copy(kind = kind)
+        }).distinctBy { it.kind }
+        return providerApi.validateMulti(
+            profiles = profiles,
+            model = model,
+            parallel = parallel,
+            apiKeyResolver = { kind -> vault.get(kind.name).orEmpty() },
         )
     }
 

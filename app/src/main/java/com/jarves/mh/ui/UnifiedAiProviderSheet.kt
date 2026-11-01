@@ -27,7 +27,9 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -75,6 +77,7 @@ import com.jarves.mh.data.ApiKeyInfo
 import com.jarves.mh.model.AgentKind
 import com.jarves.mh.model.ProviderKind
 import com.jarves.mh.model.ProviderProfile
+import com.jarves.mh.model.providersForAgent
 import com.jarves.mh.network.DiscoveredModel
 import com.jarves.mh.network.ModelDiscoveryResult
 import com.jarves.mh.ui.theme.PocketOrange
@@ -101,6 +104,10 @@ fun UnifiedAiProviderSheet(
     onDownloadOfflineModel: (String, (Float) -> Unit, (Boolean) -> Unit) -> Unit = { _, _, _ -> },
     onDeleteOfflineModel: (String) -> Unit = {},
     onGetCachedModels: (ProviderKind) -> List<DiscoveredModel>? = { null },
+    getFailoverChain: () -> List<ProviderKind> = { emptyList() },
+    saveFailoverChain: (List<ProviderKind>) -> Unit = { },
+    onToggleFailoverParallel: () -> Unit = { },
+    isFailoverParallel: Boolean = false,
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -735,6 +742,256 @@ fun UnifiedAiProviderSheet(
                             )
                         }
                     }
+                }
+            }
+
+            // =========================================================================
+            // 4b. MULTI-API FAILOVER CHAIN (SELECTED CLI → MULTIPLE PROVIDERS)
+            // =========================================================================
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column {
+                        Text(
+                            stringResource(R.string.st_multi_api_failover),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            stringResource(R.string.st_multi_api_failover_help),
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (isFailoverParallel) "Parallel" else "Sequence",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (isFailoverParallel) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        IconButton(onClick = onToggleFailoverParallel) {
+                            Icon(
+                                imageVector = if (isFailoverParallel) Icons.Default.FastForward else Icons.Default.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = if (isFailoverParallel) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    }
+                }
+
+                val chain = getFailoverChain()
+                if (chain.isEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Cloud, null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    stringResource(R.string.st_failover_chain_empty),
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    stringResource(R.string.st_failover_providers_help),
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text(
+                                    stringResource(R.string.st_failover_providers),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    stringResource(R.string.st_failover_chain_active, chain.joinToString { it.title }),
+                                    fontSize = 10.sp,
+                                    color = PocketOrange,
+                                )
+                            }
+                            chain.forEachIndexed { index, providerKind ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { /* tap to view */ }
+                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f), CircleShape),
+                                        ) {
+                                            Text(
+                                                (index + 1).toString(),
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                            )
+                                        }
+                                        Spacer(Modifier.width(10.dp))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(
+                                                providerKind.title,
+                                                fontWeight = FontWeight.Medium,
+                                                fontSize = 13.sp,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                            )
+                                            Text(
+                                                if (providerKind == ProviderKind.OLLAMA) "Local offline · no key" else providerKind.subtitle,
+                                                fontSize = 10.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                            )
+                                        }
+                                        IconButton(onClick = { saveFailoverChain(chain.filterIndexed { i, _ -> i != index }) }) {
+                                            Icon(Icons.Default.Delete, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
+                                        }
+                                    }
+                                    if (index < chain.lastIndex) {
+                                        Icon(Icons.Default.KeyboardArrowRight, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Add provider to chain dropdown
+                var addDropdown by remember { mutableStateOf(false) }
+                val availableProviders = (providersForAgent(state.agentKind) - chain).toList()
+                Surface(
+                    modifier = Modifier.fillMaxWidth().clickable { addDropdown = !addDropdown },
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp), tint = PocketOrange)
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    stringResource(R.string.st_add_failover_provider),
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    "CLI: ${state.agentKind.title}",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                )
+                            }
+                        }
+                        Icon(if (addDropdown) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, null)
+                    }
+                }
+
+                AnimatedVisibility(addDropdown) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column {
+                            if (availableProviders.isEmpty()) {
+                                Row(
+                                    modifier = Modifier.padding(14.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        "All available providers already in chain.",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            } else {
+                                availableProviders.forEach { provider: ProviderKind ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                saveFailoverChain(chain + provider)
+                                                addDropdown = false
+                                            }
+                                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .background(
+                                                    if (provider == ProviderKind.OLLAMA) Color(0xFF10B981).copy(alpha = 0.15f)
+                                                    else PocketOrange.copy(alpha = 0.15f),
+                                                    CircleShape,
+                                                ),
+                                        ) {
+                                            Icon(
+                                                imageVector = if (provider == ProviderKind.OLLAMA) Icons.Default.Storage else Icons.Default.Cloud,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp),
+                                                tint = if (provider == ProviderKind.OLLAMA) Color(0xFF10B981) else PocketOrange,
+                                            )
+                                        }
+                                        Spacer(Modifier.width(12.dp))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(provider.title, fontWeight = FontWeight.Medium, fontSize = 13.5.sp)
+                                            Text(
+                                                if (provider == ProviderKind.OLLAMA) "100% Free · Local Offline · Zero API Key"
+                                                else provider.subtitle,
+                                                fontSize = 10.5.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    }
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                OutlinedButton(
+                    onClick = { saveFailoverChain(emptyList()) },
+                    enabled = chain.isNotEmpty(),
+                    modifier = Modifier.fillMaxWidth().height(44.dp).padding(top = 8.dp),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Icon(Icons.Default.Delete, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.st_failover_clear), fontSize = 13.sp)
                 }
             }
 

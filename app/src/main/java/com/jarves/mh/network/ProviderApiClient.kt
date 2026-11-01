@@ -2,6 +2,8 @@ package com.jarves.mh.network
 
 import android.content.Context
 import com.jarves.mh.R
+import com.jarves.mh.model.ProviderKind
+import com.jarves.mh.model.ProviderProfile
 import com.jarves.mh.model.ProviderProtocol
 import com.jarves.mh.ui.AppStrings
 import org.json.JSONArray
@@ -10,6 +12,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 
 data class DiscoveredModel(val id: String, val displayName: String = id, val isFree: Boolean = false)
@@ -153,6 +157,94 @@ class ProviderApiClient(private val context: Context? = null) {
                 text(R.string.rt_api_label_network_error, "Network error"),
             )
         }
+    }
+
+    /**
+     * Discovers models across multiple providers and returns the first successful result.
+     * When [parallel] is true, all providers are queried at once and the first success wins.
+     * Otherwise they are tried in list order.
+     *
+     * @param apiKeyResolver resolves the API key for a given [ProviderKind] (e.g. from [ApiKeyVault]).
+     */
+    suspend fun discoverModelsMulti(
+        profiles: List<ProviderProfile>,
+        parallel: Boolean = false,
+        apiKeyResolver: (ProviderKind) -> String? = { null },
+    ): ModelDiscoveryResult = withContext(Dispatchers.IO) {
+        if (profiles.isEmpty()) {
+            return@withContext ModelDiscoveryResult.Failure("No providers configured for multi-API discovery.")
+        }
+        val results: List<ModelDiscoveryResult> = if (parallel) {
+            coroutineScope {
+                profiles.map { profile: ProviderProfile ->
+                    async {
+                        val baseUrl = profile.resolvedBaseUrl
+                        val key = apiKeyResolver(profile.kind).orEmpty()
+                        val protocol = profile.kind.protocol
+                        discoverModels(baseUrl, key, protocol)
+                    }
+                }
+            }.map { deferred -> deferred.await() }
+        } else {
+            profiles.map { profile: ProviderProfile ->
+                val baseUrl = profile.resolvedBaseUrl
+                val key = apiKeyResolver(profile.kind).orEmpty()
+                val protocol = profile.kind.protocol
+                discoverModels(baseUrl, key, protocol)
+            }
+        }
+        val success: ModelDiscoveryResult? = results.firstOrNull { it is ModelDiscoveryResult.Success }
+        if (success != null) return@withContext success
+        val last: ModelDiscoveryResult = results.lastOrNull() ?: ModelDiscoveryResult.Failure("No providers attempted.")
+        return@withContext last
+    }
+
+    /**
+     * Validates a model across multiple providers and returns the first successful validation.
+     * When [parallel] is true, all providers are validated at once and the first success wins.
+     * Otherwise they are tried in list order.
+     *
+     * @param apiKeyResolver resolves the API key for a given [ProviderKind] (e.g. from [ApiKeyVault]).
+     */
+    suspend fun validateMulti(
+        profiles: List<ProviderProfile>,
+        model: String,
+        parallel: Boolean = false,
+        apiKeyResolver: (ProviderKind) -> String? = { null },
+    ): ConnectionValidation = withContext(Dispatchers.IO) {
+        if (profiles.isEmpty()) {
+            return@withContext ConnectionValidation.Failure("No providers configured for multi-API validation.")
+        }
+        if (model.isBlank()) {
+            return@withContext ConnectionValidation.Failure(text(R.string.rt_api_required_fields, "Base URL, model, and API key are required."))
+        }
+        val results: List<ConnectionValidation> = if (parallel) {
+            coroutineScope {
+                profiles.map { profile: ProviderProfile ->
+                    async {
+                        val baseUrl = profile.resolvedBaseUrl
+                        val key = apiKeyResolver(profile.kind).orEmpty()
+                        val protocol = profile.kind.protocol
+                        val order = profile.openRouterProviderOrder
+                        val fallbacks = profile.openRouterAllowFallbacks
+                        validate(baseUrl, model, key, protocol, emptyList(), order, fallbacks)
+                    }
+                }
+            }.map { deferred -> deferred.await() }
+        } else {
+            profiles.map { profile: ProviderProfile ->
+                val baseUrl = profile.resolvedBaseUrl
+                val key = apiKeyResolver(profile.kind).orEmpty()
+                val protocol = profile.kind.protocol
+                val order = profile.openRouterProviderOrder
+                val fallbacks = profile.openRouterAllowFallbacks
+                validate(baseUrl, model, key, protocol, emptyList(), order, fallbacks)
+            }
+        }
+        val success: ConnectionValidation? = results.firstOrNull { it is ConnectionValidation.Success }
+        if (success != null) return@withContext success
+        val last: ConnectionValidation = results.lastOrNull() ?: ConnectionValidation.Failure("No providers attempted.")
+        return@withContext last
     }
 
     private fun request(

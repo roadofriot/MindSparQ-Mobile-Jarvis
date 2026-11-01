@@ -33,5 +33,36 @@
     <string name="provider_subtitle_gemini">जेमिनाई २.५ फ्ल्यास र प्रो (API कुञ्जी)</string>
     <string name="provider_title_ollama">ओलामा (स्थानीय / अफलाइन)</string>
     <string name="provider_subtitle_ollama">स्थानीय मोडेलहरू 127.0.0.1:11434 मा</string>
+
+    <!-- Multi-API Failover Chain -->
+    <string name="st_multi_api_failover">मल्टी-एपीआई फेलओभर चेन</string>
+    <string name="st_multi_api_failover_help">छानिएको CLI मार्फत धेरै AI प्रोviderहरू प्रयास गर्नुहोस्। पहिलो सफल जवाब जित्ने। कीहरू एक पटक मात्र थप्नुहोस्।</string>
+    <string name="st_failover_providers">फेलओभर प्रोviderहरू</string>
+    <string name="st_failover_providers_help">क्रममा प्रयास गरिने प्रोviderहरू (वा प्यारालेल मोडमा एकैपटक)। खाली छोड्दा केवल सक्रिय प्रोvider प्रयोग हुन्छ।</string>
+    <string name="st_failover_parallel">सबै प्रोviderलाई एकैपटक प्रयास गर्नुहोस् (प्यारालेल)</string>
+    <string name="st_failover_parallel_help">चेनमा भएका सबै प्रोviderलाई एकैसाथ सम्पर्क गरिन्छ; पहिलो जवाब जित्ने। धेरै अनुरोध तर छिटो।</string>
+    <string name="st_add_failover_provider">+ चेनमा प्रोvider थप्नुहोस्</string>
+    <string name="st_failover_chain_empty">कुनै फेलओभर प्रोvider कन्फिगर गरिएको छैन। केवल सक्रिय प्रोvider प्रयोग हुन्छ।</string>
+    <string name="st_failover_chain_active">फेलओभर चेन: %1$s</string>
+    <string name="st_failover_remove">चेनबाट हटाउनुहोस्</string>
+    <string name="st_failover_clear">चेन खाली गर्नुहोस्</string>
+
+    <!-- Workspace Integrity -->
+    <string name="st_integrity_title">वर्कस्पेस इन्टिग्रिटी</string>
+    <string name="st_integrity_subtitle">परियोजना वर्कस्पेसहरूको समय-समयमा SHA-256 स्न्यापशट प्रमाणन। पूर्ण रूपमा अफलाइन — कुनै क्लाउड कॉल आवश्यक छैन।</string>
+    <string name="st_integrity_check_now">अहिले जाँच गर्नुहोस्</string>
+    <string name="st_integrity_check_all">सबै परियोजनाहरू जाँच गर्नुहोस्</string>
+    <string name="st_integrity_checking">इन्टिग्रिटी जाँच गर्दै…</string>
+    <string name="st_integrity_check_interval">जाँच अन्तराल (मिनेट)</string>
+    <string name="st_integrity_check_interval_help">वर्कस्पेस स्न्यापशटहरू कति समयमा स्वचालित रूपमा प्रमाणित गर्ने। ० ले स्वचालित जाँच बन्द गर्छ।</string>
+    <string name="st_integrity_status_ok">कुनै परिवर्तन फेला परेन</string>
+    <string name="st_integrity_status_changed">अन्तिम जाँचपछि फाइलहरू परिवर्तन भएका छन्</string>
+    <string name="st_integrity_status_first">पहिलो जाँच — बेसलाइन रेकर्ड गरियो</string>
+    <string name="st_integrity_status_error">जाँच असफल</string>
+    <string name="st_integrity_last_checked">अन्तिम जाँच: %1$s</string>
+    <string name="st_integrity_changed_files">%1$d फाइल(हरू) परिवर्तन भए</string>
+    <string name="st_integrity_no_projects">जाँच गर्न परियोजनाहरू उपलब्ध छैनन्।</string>
+    <string name="st_integrity_reset_baseline">बेसलाइन रिसेट गर्नुहोस्</string>
+    <string name="st_integrity_reset_baseline_help">भण्डार गरिएको स्न्यापशट खाली गर्नुहोस्; अर्को जाँचले नयाँ बेसलाइन रेकर्ड गर्नेछ।</string>
 </resources>
 

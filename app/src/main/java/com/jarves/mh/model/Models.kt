@@ -162,6 +162,18 @@ fun providerProtocolForAgent(profile: ProviderProfile, agent: AgentKind): Provid
     }
 }
 
+/** Resolves the stored failover chain into an ordered list of ProviderKinds, skipping invalid/blank entries. */
+fun resolveFailoverChain(failoverChain: String): List<ProviderKind> {
+    if (failoverChain.isBlank()) return emptyList()
+    return failoverChain.split(',')
+        .map(String::trim)
+        .filter(String::isNotBlank)
+        .mapNotNull { name ->
+            runCatching { ProviderKind.valueOf(name) }.getOrNull()
+        }
+        .distinct()
+}
+
 /** Provider choices shown for the selected coding agent. */
 fun providersForAgent(agent: AgentKind): List<ProviderKind> = when (agent) {
     AgentKind.DEEPSEEK_HARNESS -> listOf(
@@ -216,6 +228,10 @@ data class ProviderProfile(
     val openRouterProviderOrder: String = "",
     /** Whether OpenRouter may use providers outside [openRouterProviderOrder]. */
     val openRouterAllowFallbacks: Boolean = true,
+    /** Comma-separated ProviderKind names to try as a cross-provider failover chain. Blank = active provider only. */
+    val failoverChain: String = "",
+    /** When true, all providers in the chain are tried at once and the first success wins. When false, they are tried in order. */
+    val failoverParallel: Boolean = false,
 ) {
     /** Effective base URL: fixed kinds always resolve to their constant, ignoring stored drift. */
     val resolvedBaseUrl: String get() = if (kind.fixedBaseUrl) kind.defaultBaseUrl else baseUrl

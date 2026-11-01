@@ -131,7 +131,7 @@ fun LiveVoiceProjectArchitectDialog(
     var voiceState by remember { mutableStateOf(JarvisVoiceState.IDLE) }
     var isVoiceMuted by rememberSaveable { mutableStateOf(false) }
     var textInput by remember { mutableStateOf("") }
-    val initialKey = if (geminiApiKey.startsWith("AIzaSy") || geminiApiKey.startsWith("sk-or-")) geminiApiKey else ""
+    val initialKey = geminiApiKey.trim()
     var activeApiKey by rememberSaveable { mutableStateOf(initialKey) }
     var showApiKeyInput by rememberSaveable { mutableStateOf(initialKey.isBlank()) }
     var tempApiKey by rememberSaveable { mutableStateOf(initialKey) }
@@ -270,9 +270,10 @@ fun LiveVoiceProjectArchitectDialog(
 
                 scope.launch {
                     val history = messages.takeLast(10).map { it.sender to it.text }
+                    val keyToUse = activeApiKey.ifBlank { tempApiKey }.trim()
                     val result = withContext(Dispatchers.IO) {
                         GeminiLiveVoiceClient.generateConversationalReply(
-                            apiKey = activeApiKey,
+                            apiKey = keyToUse,
                             userPrompt = input,
                             history = history,
                             languageInstruction = "Nepali and English naturally",
@@ -283,7 +284,8 @@ fun LiveVoiceProjectArchitectDialog(
                         messages.add(JarvisVoiceMessage(sender = "JARVIS", text = reply))
                         speak(reply)
                     }.onFailure { err ->
-                        val fallback = "I heard you, sir, but encountered a connection issue: ${err.message?.take(80) ?: "offline"}. Please verify your API key or network."
+                        val cleanErrMsg = err.localizedMessage?.replace("java.lang.Exception: ", "")?.replace("java.lang.IllegalStateException: ", "") ?: "Connection issue"
+                        val fallback = "I heard you, sir, but encountered an issue: $cleanErrMsg"
                         messages.add(JarvisVoiceMessage(sender = "JARVIS", text = fallback))
                         speak(fallback)
                     }
@@ -501,7 +503,7 @@ fun LiveVoiceProjectArchitectDialog(
                             }
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                "Gemini keys start with 'AIzaSy'. Free tier provides fast conversational responses.",
+                                "Google Gemini keys start with 'AQ.' or 'AIzaSy'. OpenRouter keys start with 'sk-or-'.",
                                 fontSize = 10.5.sp,
                                 color = Color.Gray,
                             )
@@ -513,7 +515,7 @@ fun LiveVoiceProjectArchitectDialog(
                                 OutlinedTextField(
                                     value = tempApiKey,
                                     onValueChange = { tempApiKey = it },
-                                    placeholder = { Text("Paste AIzaSy... or OpenRouter sk-or-...", fontSize = 11.5.sp, color = Color.Gray) },
+                                    placeholder = { Text("Paste Gemini (AQ. / AIzaSy...) or OpenRouter (sk-or-...)", fontSize = 11.5.sp, color = Color.Gray) },
                                     singleLine = true,
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedBorderColor = PocketOrange,
@@ -581,14 +583,14 @@ fun LiveVoiceProjectArchitectDialog(
                                     } else {
                                         val trimmed = tempApiKey.trim()
                                         val statusText = when {
-                                            trimmed.startsWith("AIzaSy") -> "🟢 Google Gemini Key format (AIzaSy...)"
-                                            trimmed.startsWith("sk-or-") -> "🟢 OpenRouter Key format (sk-or-...)"
-                                            trimmed.isNotBlank() -> "⚠️ Warning: Gemini keys start with 'AIzaSy'"
-                                            else -> "Enter your Google Gemini API key"
+                                            trimmed.startsWith("AQ.") -> "🟢 Google Antigravity / Gemini Key (AQ...)"
+                                            trimmed.startsWith("AIzaSy") -> "🟢 Google Gemini API Key (AIzaSy...)"
+                                            trimmed.startsWith("sk-or-") -> "🟢 OpenRouter API Key (sk-or-...)"
+                                            trimmed.isNotBlank() -> "🟢 Key Recognized (${trimmed.take(8)}...)"
+                                            else -> "Enter your Google Gemini (AQ. / AIzaSy...) or OpenRouter key"
                                         }
                                         val statusColor = when {
-                                            trimmed.startsWith("AIzaSy") || trimmed.startsWith("sk-or-") -> Color(0xFF4ADE80)
-                                            trimmed.isNotBlank() -> PocketOrange
+                                            trimmed.isNotBlank() -> Color(0xFF4ADE80)
                                             else -> Color.Gray
                                         }
                                         Text(

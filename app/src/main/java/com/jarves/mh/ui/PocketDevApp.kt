@@ -299,6 +299,7 @@ private enum class RootScreen(@StringRes val labelRes: Int, val icon: ImageVecto
     PROJECTS(R.string.tab_projects, Icons.Default.Folder),
     AGENT(R.string.tab_agent, Icons.Default.SmartToy),
     SETTINGS(R.string.tab_settings, Icons.Default.Settings),
+    INTEGRITY(R.string.st_integrity_title, Icons.Default.Shield),
 }
 private enum class WorkspaceTab(@StringRes val labelRes: Int, val icon: ImageVector) {
     CHAT(R.string.tab_chat, Icons.Default.AutoAwesome),
@@ -522,6 +523,10 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
                 viewModel.deleteOfflineModel(modelId)
             },
             onGetCachedModels = viewModel::getCachedModels,
+            getFailoverChain = viewModel::getFailoverChain,
+            saveFailoverChain = viewModel::saveFailoverChain,
+            onToggleFailoverParallel = viewModel::toggleFailoverParallel,
+            isFailoverParallel = viewModel.isFailoverParallel(),
         )
     }
 }
@@ -2605,10 +2610,23 @@ private fun RootScreenHost(
                     onDisconnectGitHub = viewModel::disconnectGitHub,
                     onConnectGitHubWithToken = viewModel::connectGitHubWithToken,
                     onGetGeminiApiKey = {
-                        val key = viewModel.getSavedApiKey(ProviderKind.GEMINI)
-                        if (key.startsWith("AIzaSy") || key.startsWith("sk-or-")) key else ""
+                        val geminiKey = viewModel.getSavedApiKey(ProviderKind.GEMINI)
+                        val openRouterKey = viewModel.getSavedApiKey(ProviderKind.LLM_ROUTER)
+                        when {
+                            geminiKey.isNotBlank() -> geminiKey
+                            openRouterKey.isNotBlank() -> openRouterKey
+                            else -> ""
+                        }
                     },
-                    onSaveGeminiApiKey = viewModel::saveGeminiApiKey,
+                    onSaveGeminiApiKey = { key ->
+                        val clean = key.trim()
+                        if (clean.startsWith("sk-or-")) {
+                            viewModel.saveApiKey(ProviderKind.LLM_ROUTER, clean)
+                            viewModel.saveApiKey(ProviderKind.GEMINI, clean)
+                        } else {
+                            viewModel.saveGeminiApiKey(clean)
+                        }
+                    },
                     onCloneGitHub = viewModel::cloneGitHubRepository,
                     onRenameProject = viewModel::renameProject,
                     onDeleteProject = viewModel::deleteProject,
@@ -2681,6 +2699,12 @@ private fun RootScreenHost(
                     onStopInactiveProcesses = viewModel::stopInactiveDeveloperProcesses,
                     onClearRuntimeCache = viewModel::clearDeveloperRuntimeCache,
                     onOpenAiHub = onOpenAiHub,
+                    onOpenIntegrity = { screen = RootScreen.INTEGRITY },
+                )
+                RootScreen.INTEGRITY -> IntegrityScreen(
+                    state = state,
+                    viewModel = viewModel,
+                    onBack = { screen = RootScreen.PROJECTS },
                 )
             }
         }
