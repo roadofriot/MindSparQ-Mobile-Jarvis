@@ -39,14 +39,14 @@ class AppPreferences(private val context: Context) {
         get() = preferences.getBoolean("initial_language_selected", onboardingComplete || runtimeSetupComplete)
         set(value) { preferences.edit().putBoolean("initial_language_selected", value).apply() }
 
-    /** Coding agent engine the user picked during setup. Absent = pre-agent-choice install → Claude. */
+    /** Coding agent engine the user picked during setup. Defaults to OpenCode (free & open-source). */
     var agentKind: String
-        get() = preferences.getString("agent_kind", AgentKind.CLAUDE_CODE.stableId) ?: AgentKind.CLAUDE_CODE.stableId
+        get() = preferences.getString("agent_kind", AgentKind.OPENCODE.stableId) ?: AgentKind.OPENCODE.stableId
         set(value) { preferences.edit().putString("agent_kind", value).apply() }
 
     /** Agent chosen for the initial runtime installation; used as the leading UI tab. */
     var primaryAgentKind: String
-        get() = preferences.getString("primary_agent_kind", "") ?: ""
+        get() = preferences.getString("primary_agent_kind", AgentKind.OPENCODE.stableId) ?: AgentKind.OPENCODE.stableId
         set(value) { preferences.edit().putString("primary_agent_kind", value).apply() }
 
     var antigravityModel: String

@@ -215,9 +215,7 @@ fun UnifiedAiProviderSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { agentDropdownExpanded = !agentDropdownExpanded },
+                    modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
@@ -229,75 +227,20 @@ fun UnifiedAiProviderSheet(
                         Box(
                             modifier = Modifier
                                 .size(36.dp)
-                                .background(
-                                    when (state.agentKind) {
-                                        AgentKind.CLAUDE_CODE -> Color(0xFFD97757).copy(alpha = 0.15f)
-                                        AgentKind.DEEPSEEK_HARNESS -> Color(0xFF4D6BFE).copy(alpha = 0.15f)
-                                        AgentKind.ANTIGRAVITY -> Color(0xFF4285F4).copy(alpha = 0.15f)
-                                        AgentKind.OPENCODE -> Color(0xFF00B4D8).copy(alpha = 0.15f)
-                                    },
-                                    CircleShape,
-                                ),
+                                .background(Color(0xFF00B4D8).copy(alpha = 0.15f), CircleShape),
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(
-                                imageVector = when (state.agentKind) {
-                                    AgentKind.ANTIGRAVITY -> Icons.Default.SmartToy
-                                    AgentKind.OPENCODE -> Icons.Default.AutoAwesome
-                                    else -> Icons.Default.Terminal
-                                },
+                                imageVector = Icons.Default.AutoAwesome,
                                 contentDescription = null,
                                 modifier = Modifier.size(18.dp),
-                                tint = when (state.agentKind) {
-                                    AgentKind.CLAUDE_CODE -> Color(0xFFD97757)
-                                    AgentKind.DEEPSEEK_HARNESS -> Color(0xFF4D6BFE)
-                                    AgentKind.ANTIGRAVITY -> Color(0xFF4285F4)
-                                    AgentKind.OPENCODE -> Color(0xFF00B4D8)
-                                },
+                                tint = Color(0xFF00B4D8),
                             )
                         }
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(state.agentKind.title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            Text(state.agentKind.subtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Icon(if (agentDropdownExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, null)
-                    }
-                }
-
-                AnimatedVisibility(agentDropdownExpanded) {
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
-                    ) {
-                        Column {
-                            listOf(
-                                AgentKind.DEEPSEEK_HARNESS,
-                                AgentKind.CLAUDE_CODE,
-                                AgentKind.ANTIGRAVITY,
-                                AgentKind.OPENCODE,
-                            ).forEachIndexed { index, agent ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            onSelectAgent(agent)
-                                            agentDropdownExpanded = false
-                                        }
-                                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text(agent.title, fontWeight = FontWeight.Medium, fontSize = 13.5.sp)
-                                        Text(agent.subtitle, fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                    if (state.agentKind == agent) {
-                                        Icon(Icons.Default.Check, null, tint = PocketOrange, modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                                if (index < 3) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                            }
+                            Text(AgentKind.OPENCODE.title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(AgentKind.OPENCODE.subtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }

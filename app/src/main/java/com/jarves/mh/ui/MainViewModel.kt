@@ -188,10 +188,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!signedIn) preferences.clearAgentConversations(AgentKind.ANTIGRAVITY)
     }
 
-    private val initialAgentKind = AgentKind.fromStored(preferences.agentKind)
+    private val initialAgentKind = AgentKind.fromStored(preferences.agentKind).let {
+        if (it == AgentKind.CLAUDE_CODE || it == AgentKind.ANTIGRAVITY || it == AgentKind.DEEPSEEK_HARNESS) AgentKind.OPENCODE else it
+    }
     private val initialPrimaryAgentKind = preferences.primaryAgentKind
         .takeIf(String::isNotBlank)
-        ?.let(AgentKind::fromStored)
+        ?.let(AgentKind::fromStored)?.let {
+            if (it == AgentKind.CLAUDE_CODE || it == AgentKind.ANTIGRAVITY || it == AgentKind.DEEPSEEK_HARNESS) AgentKind.OPENCODE else it
+        }
         ?: initialAgentKind
 
     internal val _state = MutableStateFlow(

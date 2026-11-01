@@ -601,7 +601,7 @@ internal fun WorkspaceScreen(
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
                                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                                    modifier = Modifier.clickable { agentMenuExpanded = true },
+                                    modifier = Modifier.clickable { onOpenAiHub() },
                                 ) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
@@ -611,95 +611,25 @@ internal fun WorkspaceScreen(
                                             modifier = Modifier
                                                 .size(6.dp)
                                                 .background(
-                                                    color = when (state.agentKind) {
-                                                        AgentKind.CLAUDE_CODE -> Color(0xFFD97706)
-                                                        AgentKind.DEEPSEEK_HARNESS -> Color(0xFF3B82F6)
-                                                        AgentKind.ANTIGRAVITY -> Color(0xFF10B981)
-                                                        AgentKind.OPENCODE -> Color(0xFF00B4D8)
-                                                    },
+                                                    color = Color(0xFF00B4D8),
                                                     shape = CircleShape,
                                                 ),
                                         )
                                         Spacer(Modifier.width(4.dp))
                                         Text(
-                                            when (state.agentKind) {
-                                                AgentKind.CLAUDE_CODE -> "Claude"
-                                                AgentKind.DEEPSEEK_HARNESS -> "DSH"
-                                                AgentKind.ANTIGRAVITY -> "AGY"
-                                                AgentKind.OPENCODE -> "OpenCode"
-                                            },
+                                            "OpenCode",
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.SemiBold,
                                             color = MaterialTheme.colorScheme.onSurface,
                                         )
                                         Spacer(Modifier.width(2.dp))
                                         Icon(
-                                            Icons.Default.KeyboardArrowDown,
-                                            contentDescription = "Switch Agent",
-                                            modifier = Modifier.size(14.dp),
+                                            Icons.Default.Tune,
+                                            contentDescription = "Configure AI Provider",
+                                            modifier = Modifier.size(12.dp),
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                     }
-                                }
-                                DropdownMenu(
-                                    expanded = agentMenuExpanded,
-                                    onDismissRequest = { agentMenuExpanded = false },
-                                ) {
-                                    Text(
-                                        "SELECT CODING AGENT CLI",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                                    )
-                                    AgentKind.entries.forEach { agent ->
-                                        DropdownMenuItem(
-                                            text = {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .size(8.dp)
-                                                            .background(
-                                                                color = when (agent) {
-                                                                    AgentKind.CLAUDE_CODE -> Color(0xFFD97706)
-                                                                    AgentKind.DEEPSEEK_HARNESS -> Color(0xFF3B82F6)
-                                                                    AgentKind.ANTIGRAVITY -> Color(0xFF10B981)
-                                                                    AgentKind.OPENCODE -> Color(0xFF00B4D8)
-                                                                },
-                                                                shape = CircleShape,
-                                                            ),
-                                                    )
-                                                    Spacer(Modifier.width(8.dp))
-                                                    Text(
-                                                        agent.localizedTitle(),
-                                                        fontWeight = if (agent == state.agentKind) FontWeight.Bold else FontWeight.Normal,
-                                                    )
-                                                }
-                                            },
-                                            trailingIcon = {
-                                                if (agent == state.agentKind) {
-                                                    Icon(Icons.Default.Check, contentDescription = "Active", tint = PocketOrange, modifier = Modifier.size(16.dp))
-                                                }
-                                            },
-                                            onClick = {
-                                                agentMenuExpanded = false
-                                                onSelectAgent(agent)
-                                            },
-                                        )
-                                    }
-                                    HorizontalDivider()
-                                    DropdownMenuItem(
-                                        text = {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Icon(Icons.Default.Tune, contentDescription = null, tint = PocketOrange, modifier = Modifier.size(16.dp))
-                                                Spacer(Modifier.width(8.dp))
-                                                Text("AI Providers & Keys...", fontSize = 13.sp)
-                                            }
-                                        },
-                                        onClick = {
-                                            agentMenuExpanded = false
-                                            onOpenAiHub()
-                                        },
-                                    )
                                 }
                             }
                             Spacer(Modifier.width(6.dp))

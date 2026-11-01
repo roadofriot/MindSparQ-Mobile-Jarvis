@@ -479,7 +479,7 @@ fun SettingsScreen(
                     if (state.installedAgentVersions.isEmpty()) {
                         RuntimeInfoRow(stringResource(R.string.st_status), stringResource(R.string.st_no_verified_agent))
                     } else {
-                        AgentKind.entries.forEach { agent ->
+                        AgentKind.VISIBLE_AGENTS.forEach { agent ->
                             state.installedAgentVersions[agent]?.let { version ->
                                 RuntimeInfoRow(agent.localizedTitle(), "v$version")
                             }

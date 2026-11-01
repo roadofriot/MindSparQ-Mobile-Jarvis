@@ -99,9 +99,11 @@ enum class AgentKind(
     ;
 
     companion object {
+        val VISIBLE_AGENTS: List<AgentKind> = listOf(OPENCODE)
+
         fun fromStored(value: String?): AgentKind = entries.firstOrNull {
             it.stableId == value || it.name == value
-        } ?: CLAUDE_CODE
+        } ?: OPENCODE
     }
 }
 

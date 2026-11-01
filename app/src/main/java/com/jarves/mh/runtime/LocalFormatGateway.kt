@@ -121,44 +121,6 @@ internal class LocalFormatGateway(
                         break
                     }
 
-                    // Native Anthropic-compatible routing (OpenRouter / Anthropic gateways)
-                    if (targetProfile.kind.protocol == ProviderProtocol.OPENROUTER) {
-                        val routedBody = applyOpenRouterRouting(JSONObject(bodyBytes.decodeToString()), targetProfile)
-                        activeModelUsed = targetProfile.model
-                        val res = callAnthropicUpstream(path, routedBody, targetProfile, keyToUse, headers, output)
-                        val code = res.first
-                        val body = res.second
-
-                        if (code in 200..299) {
-                            candidateKey?.let { keyPool?.reportSuccess(it.id, it.quotaScopeId, 0, 0) }
-                            return // Output already written/streamed
-                        }
-
-                        if (code == 401 || code == 403) {
-                            Log.w("FormatGateway", "Auth error on OpenRouter key ${candidateKey?.label ?: "active"}: $body")
-                            candidateKey?.let { keyPool?.reportKeyAuthFailure(it.id, body) }
-                            continue
-                        }
-
-                        if (code == 429) {
-                            val isQuota = body.contains("quota", ignoreCase = true) ||
-                                body.contains("resource_exhausted", ignoreCase = true) ||
-                                body.contains("daily", ignoreCase = true)
-
-                            if (isQuota && candidateKey != null) {
-                                Log.w("FormatGateway", "Project quota exhausted on ${candidateKey.quotaScopeId}: $body")
-                                keyPool?.reportProjectQuotaExhausted(candidateKey.quotaScopeId, error = body)
-                                continue
-                            } else {
-                                candidateKey?.let { keyPool?.reportRateLimit(it.id, 60_000L) }
-                                continue
-                            }
-                        }
-
-                        Log.w("FormatGateway", "OpenRouter provider error $code: $body")
-                        break
-                    }
-
                     // Format-translation routing (OpenAI chat / responses protocol)
                     val openAiReq = toOpenAi(anthropic, targetProfile)
                     activeModelUsed = targetProfile.model
@@ -208,8 +170,22 @@ internal class LocalFormatGateway(
                         }
                     }
 
-                    // For other 5xx errors: try next key once or failover
+                    // For other 5xx errors: try cascading free models before failing
                     Log.w("FormatGateway", "Provider error $code: $body")
+                    if (targetProfile.kind == ProviderKind.LLM_ROUTER || targetProfile.model.endsWith(":free")) {
+                        for (fallbackModel in FREE_FALLBACK_CASCADE) {
+                            if (fallbackModel == targetProfile.model) continue
+                            Log.i("FormatGateway", "Cascading to fallback model: $fallbackModel on code $code")
+                            val fallbackReq = toOpenAi(anthropic, targetProfile).apply { put("model", normalizeModel(fallbackModel)) }
+                            val cascadeRes = callProvider(fallbackReq, targetProfile, keyToUse)
+                            if (cascadeRes.first in 200..299) {
+                                activeModelUsed = fallbackModel
+                                candidateKey?.let { keyPool?.reportSuccess(it.id, it.quotaScopeId, 0, 0) }
+                                upstream = cascadeRes
+                                break@providerLoop
+                            }
+                        }
+                    }
                     break
                 }
             }
@@ -362,12 +338,21 @@ internal class LocalFormatGateway(
             .put("usage", JSONObject().put("input_tokens", usage.optInt("prompt_tokens")).put("output_tokens", usage.optInt("completion_tokens")))
     }
 
+    private fun openAiChatCompletionsEndpoint(baseUrl: String): String {
+        val clean = baseUrl.trim().trimEnd('/')
+        return when {
+            clean.endsWith("/chat/completions") -> clean
+            clean.endsWith("/v1") -> "$clean/chat/completions"
+            else -> "$clean/v1/chat/completions"
+        }
+    }
+
     private fun callProvider(
         body: JSONObject,
         targetProfile: ProviderProfile = profile,
         targetKey: String = apiKey
     ): Pair<Int, String> {
-        val endpoint = targetProfile.baseUrl.trimEnd('/') + "/chat/completions"
+        val endpoint = openAiChatCompletionsEndpoint(targetProfile.resolvedBaseUrl)
         if (!com.jarves.mh.network.LocalNetwork.isPlainHttpAllowed(endpoint)) {
             return 400 to errorJson("invalid_request_error", "Plain http:// is only allowed for local network addresses")
         }
@@ -380,6 +365,10 @@ internal class LocalFormatGateway(
             connection.setRequestProperty("Content-Type", "application/json")
             if (targetKey.isNotBlank() && targetKey != "no-key-required") {
                 connection.setRequestProperty("Authorization", "Bearer $targetKey")
+            }
+            if (targetProfile.kind == ProviderKind.LLM_ROUTER || targetProfile.kind.protocol == ProviderProtocol.OPENROUTER) {
+                connection.setRequestProperty("HTTP-Referer", "https://github.com/roadofriot/MindSparQ-Mobile-Jarvis")
+                connection.setRequestProperty("X-Title", "MindSparQ Jarvis")
             }
             connection.outputStream.use { it.write(body.toString().toByteArray()) }
             val code = connection.responseCode
@@ -477,12 +466,13 @@ internal class LocalFormatGateway(
         const val MAX_REQUEST_BYTES = 8 * 1024 * 1024
         const val SOCKET_TIMEOUT_MS = 30_000
         val FREE_FALLBACK_CASCADE = listOf(
+            "cohere/north-mini-code:free",
             "qwen/qwen-2.5-coder-32b-instruct:free",
+            "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+            "google/gemma-4-31b-it:free",
+            "openrouter/free",
             "deepseek/deepseek-chat:free",
             "deepseek/deepseek-r1:free",
-            "google/gemini-2.0-flash-exp:free",
-            "mistralai/mistral-small-24b-instruct-2501:free",
-            "meta-llama/llama-3.3-70b-instruct:free",
         )
     }
 }

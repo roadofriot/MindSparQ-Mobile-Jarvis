@@ -627,7 +627,7 @@ internal fun RuntimeSetupPromptScreen(
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 ) {
                     Column {
-                        AgentKind.entries.forEachIndexed { index, agent ->
+                        AgentKind.VISIBLE_AGENTS.forEachIndexed { index, agent ->
                             AgentChoiceRow(
                                 agent = agent,
                                 title = stringResource(agent.titleRes()),
@@ -636,7 +636,7 @@ internal fun RuntimeSetupPromptScreen(
                                 selected = selectedAgent == agent,
                                 onClick = { onSelectAgent(agent) },
                             )
-                            if (index != AgentKind.entries.lastIndex) {
+                            if (index != AgentKind.VISIBLE_AGENTS.lastIndex) {
                                 HorizontalDivider(
                                     modifier = Modifier.padding(start = 62.dp),
                                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
@@ -976,7 +976,7 @@ internal fun AgentSwitchSheet(
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             ) {
                 Column {
-                    AgentKind.entries.forEachIndexed { index, agent ->
+                    AgentKind.VISIBLE_AGENTS.forEachIndexed { index, agent ->
                         val labels = agentLabels.getValue(agent)
                         AgentChoiceRow(
                             agent = agent,
@@ -986,7 +986,7 @@ internal fun AgentSwitchSheet(
                             selected = agent == selected,
                             onClick = { onSelect(agent) },
                         )
-                        if (index != AgentKind.entries.lastIndex) {
+                        if (index != AgentKind.VISIBLE_AGENTS.lastIndex) {
                             HorizontalDivider(
                                 modifier = Modifier.padding(start = 62.dp),
                                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),

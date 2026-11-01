@@ -237,9 +237,7 @@ fun AgentScreen(
     var antigravityCode by rememberSaveable { mutableStateOf("") }
     var viewedAgent by rememberSaveable { mutableStateOf(state.agentKind) }
 
-    val orderedAgents = remember(state.primaryAgentKind) {
-        listOf(state.primaryAgentKind) + AgentKind.entries.filterNot { it == state.primaryAgentKind }
-    }
+    val orderedAgents = AgentKind.VISIBLE_AGENTS
     val viewedAgentInstalled = state.installedAgentVersions.containsKey(viewedAgent)
 
     val providerSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
