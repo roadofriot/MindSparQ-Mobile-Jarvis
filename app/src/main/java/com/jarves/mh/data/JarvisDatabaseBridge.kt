@@ -102,19 +102,43 @@ class JarvisDatabaseBridge(private val context: Context) {
     // ------------------------------------------------------------------------
 
     fun saveProjectChats(projectId: String, chats: List<ProjectChat>) {
-        queries.transaction {
-            queries.deleteChatsForProject(projectId)
-            chats.forEach { chat ->
-                queries.insertChat(
-                    id = chat.id,
-                    project_id = projectId,
-                    title = chat.title,
-                    agent = "claude-code",
-                    mode = "code",
-                    created_at = chat.createdAtMillis,
-                    updated_at = chat.updatedAtMillis,
-                )
+        if (projectId.isBlank()) return
+        runCatching {
+            queries.transaction {
+                // Ensure parent project row exists so FK NEVER fails
+                val projectExists = queries.selectProjectById(projectId).executeAsOneOrNull() != null
+                if (!projectExists) {
+                    val now = System.currentTimeMillis()
+                    queries.insertProject(
+                        id = projectId,
+                        name = "Project",
+                        slug = projectId,
+                        root_path = "",
+                        stack = null,
+                        template = null,
+                        created_at = now,
+                        updated_at = now,
+                        archived = 0,
+                        deleted_at = null,
+                        settings_json = null,
+                    )
+                }
+
+                // Upsert incoming chats
+                chats.forEach { chat ->
+                    queries.insertChat(
+                        id = chat.id,
+                        project_id = projectId,
+                        title = chat.title,
+                        agent = "claude-code",
+                        mode = "code",
+                        created_at = chat.createdAtMillis,
+                        updated_at = chat.updatedAtMillis,
+                    )
+                }
             }
+        }.onFailure { error ->
+            Log.e("JarvisDB", "Failed to save chats for project $projectId", error)
         }
     }
 
@@ -135,46 +159,86 @@ class JarvisDatabaseBridge(private val context: Context) {
     // ------------------------------------------------------------------------
 
     fun saveMessages(projectId: String, chatId: String, messages: List<ChatMessage>) {
-        queries.transaction {
-            queries.deleteMessagesForChat(chatId)
-            messages.forEach { m ->
-                val contentJson = JSONObject().apply {
-                    put("text", m.text)
-                    put("workedMillis", m.workedMillis)
-                    put("attachments", JSONArray().apply {
-                        m.attachments.forEach { att ->
-                            put(JSONObject().apply {
-                                put("id", att.id)
-                                put("displayName", att.displayName)
-                                put("relativePath", att.relativePath)
-                                put("mimeType", att.mimeType)
-                                put("sizeBytes", att.sizeBytes)
-                            })
-                        }
-                    })
-                    put("workItems", JSONArray().apply {
-                        m.workItems.forEach { item ->
-                            put(JSONObject().apply {
-                                put("title", item.title)
-                                put("detail", item.detail)
-                                put("isComplete", item.isComplete)
-                                put("isCommand", item.isCommand)
-                            })
-                        }
-                    })
-                }.toString()
+        if (chatId.isBlank() || projectId.isBlank()) return
+        runCatching {
+            queries.transaction {
+                // 1. Ensure parent project row exists
+                val projectExists = queries.selectProjectById(projectId).executeAsOneOrNull() != null
+                if (!projectExists) {
+                    val now = System.currentTimeMillis()
+                    queries.insertProject(
+                        id = projectId,
+                        name = "Project",
+                        slug = projectId,
+                        root_path = "",
+                        stack = null,
+                        template = null,
+                        created_at = now,
+                        updated_at = now,
+                        archived = 0,
+                        deleted_at = null,
+                        settings_json = null,
+                    )
+                }
 
-                queries.insertOrReplaceMessage(
-                    id = m.id,
-                    chat_id = chatId,
-                    role = if (m.fromUser) "user" else "assistant",
-                    content_json = contentJson,
-                    model_ref = null,
-                    tokens_in = null,
-                    tokens_out = null,
-                    created_at = m.createdAt.toEpochMilli(),
-                )
+                // 2. Ensure parent chat row exists so FK NEVER fails
+                val chatExists = queries.selectChatById(chatId).executeAsOneOrNull() != null
+                if (!chatExists) {
+                    val now = System.currentTimeMillis()
+                    queries.insertChat(
+                        id = chatId,
+                        project_id = projectId,
+                        title = "Chat",
+                        agent = "claude-code",
+                        mode = "code",
+                        created_at = now,
+                        updated_at = now,
+                    )
+                }
+
+                // 3. Atomically replace messages for this chat
+                queries.deleteMessagesForChat(chatId)
+                messages.forEach { m ->
+                    val contentJson = JSONObject().apply {
+                        put("text", m.text)
+                        put("workedMillis", m.workedMillis)
+                        put("attachments", JSONArray().apply {
+                            m.attachments.forEach { att ->
+                                put(JSONObject().apply {
+                                    put("id", att.id)
+                                    put("displayName", att.displayName)
+                                    put("relativePath", att.relativePath)
+                                    put("mimeType", att.mimeType)
+                                    put("sizeBytes", att.sizeBytes)
+                                })
+                            }
+                        })
+                        put("workItems", JSONArray().apply {
+                            m.workItems.forEach { item ->
+                                put(JSONObject().apply {
+                                    put("title", item.title)
+                                    put("detail", item.detail)
+                                    put("isComplete", item.isComplete)
+                                    put("isCommand", item.isCommand)
+                                })
+                            }
+                        })
+                    }.toString()
+
+                    queries.insertOrReplaceMessage(
+                        id = m.id,
+                        chat_id = chatId,
+                        role = if (m.fromUser) "user" else "assistant",
+                        content_json = contentJson,
+                        model_ref = null,
+                        tokens_in = null,
+                        tokens_out = null,
+                        created_at = m.createdAt.toEpochMilli(),
+                    )
+                }
             }
+        }.onFailure { error ->
+            Log.e("JarvisDB", "Failed to save messages for chat $chatId in project $projectId", error)
         }
     }
 

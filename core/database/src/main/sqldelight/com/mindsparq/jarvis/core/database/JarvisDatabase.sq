@@ -210,6 +210,9 @@ DELETE FROM project WHERE id = ?;
 selectChatsForProject:
 SELECT * FROM chat WHERE project_id = ? ORDER BY updated_at DESC;
 
+selectChatById:
+SELECT * FROM chat WHERE id = ? LIMIT 1;
+
 insertChat:
 INSERT OR REPLACE INTO chat (id, project_id, title, agent, mode, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?);

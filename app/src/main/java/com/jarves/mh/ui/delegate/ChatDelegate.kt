@@ -187,7 +187,11 @@ class ChatDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
                     latestByChat[next.projectId to next.chatId] = next
                 }
                 latestByChat.values.forEach { latest ->
-                    preferences.saveMessages(latest.projectId, latest.chatId, latest.messages)
+                    runCatching {
+                        preferences.saveMessages(latest.projectId, latest.chatId, latest.messages)
+                    }.onFailure { err ->
+                        android.util.Log.e("ChatDelegate", "Background saveMessages failed for chat ${latest.chatId}", err)
+                    }
                 }
             }
         }

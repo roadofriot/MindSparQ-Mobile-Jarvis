@@ -107,3 +107,4 @@ AFTER (10.0 / 10 Modular Clean Architecture):
    ./gradlew :app:assembleOnlineDebug --no-daemon --max-workers=2 -Dorg.gradle.jvmargs="-Xmx1536m"
    # Result: BUILD SUCCESSFUL in 1m 3s (app-online-debug.apk, 75 MB)
    ```
+

@@ -454,8 +454,8 @@ class AppPreferences(private val context: Context) {
             createdAtMillis = now,
             updatedAtMillis = now,
         )
-        saveProjectChatsLegacy(projectId, listOf(chat))
-        if (legacyMessages.isNotEmpty()) saveMessagesLegacy(projectId, chat.id, legacyMessages)
+        saveProjectChats(projectId, listOf(chat))
+        if (legacyMessages.isNotEmpty()) saveMessages(projectId, chat.id, legacyMessages)
         return listOf(chat)
     }
 
