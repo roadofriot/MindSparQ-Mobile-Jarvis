@@ -77,26 +77,76 @@ class JarvisDatabaseTest {
     }
 
     @Test
-    fun testProviderAndKeyCooldown() {
+    fun testChatAndMessageRelationalIntegrity() {
         val now = System.currentTimeMillis()
         val queries = database.jarvisDatabaseQueries
 
-        // Insert Provider
-        queries.transaction {
-            database.jarvisDatabaseQueries.insertProject(
-                id = "dummy",
-                name = "Dummy",
-                slug = "dummy",
-                root_path = "/dummy",
-                stack = null,
-                template = null,
-                created_at = now,
-                updated_at = now,
-                archived = 0,
-                deleted_at = null,
-                settings_json = null
-            )
-        }
+        // 1. Insert Project
+        queries.insertProject(
+            id = "proj-chat-1",
+            name = "Jarvis AI",
+            slug = "jarvis-ai",
+            root_path = "/workspaces/jarvis-ai",
+            stack = "KOTLIN",
+            template = "compose",
+            created_at = now,
+            updated_at = now,
+            archived = 0,
+            deleted_at = null,
+            settings_json = "{\"type\":\"ANDROID\"}"
+        )
+
+        assertEquals(1L, queries.countProjects().executeAsOne())
+
+        // 2. Insert Chat
+        queries.insertChat(
+            id = "chat-main",
+            project_id = "proj-chat-1",
+            title = "Architecture Discussion",
+            agent = "claude-code",
+            mode = "code",
+            created_at = now,
+            updated_at = now
+        )
+
+        val chats = queries.selectChatsForProject("proj-chat-1").executeAsList()
+        assertEquals(1, chats.size)
+        assertEquals("Architecture Discussion", chats[0].title)
+
+        // 3. Insert Messages
+        queries.insertOrReplaceMessage(
+            id = "msg-1",
+            chat_id = "chat-main",
+            role = "user",
+            content_json = "{\"text\":\"Hello Jarvis\"}",
+            model_ref = null,
+            tokens_in = 10,
+            tokens_out = 0,
+            created_at = now
+        )
+
+        queries.insertOrReplaceMessage(
+            id = "msg-2",
+            chat_id = "chat-main",
+            role = "assistant",
+            content_json = "{\"text\":\"Hello Sir, ready to code.\"}",
+            model_ref = "gemini-2.5-flash",
+            tokens_in = 15,
+            tokens_out = 20,
+            created_at = now + 100
+        )
+
+        val messages = queries.selectMessagesForChat("chat-main").executeAsList()
+        assertEquals(2, messages.size)
+        assertEquals("user", messages[0].role)
+        assertEquals("assistant", messages[1].role)
+
+        // 4. Test delete messages
+        queries.deleteMessagesForChat("chat-main")
+        assertEquals(0, queries.selectMessagesForChat("chat-main").executeAsList().size)
+
+        // 5. Test delete project
+        queries.deleteProjectPermanently("proj-chat-1")
+        assertEquals(0L, queries.countProjects().executeAsOne())
     }
 }
-

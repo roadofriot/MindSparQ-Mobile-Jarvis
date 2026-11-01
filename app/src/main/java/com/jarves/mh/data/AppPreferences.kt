@@ -21,6 +21,7 @@ import java.time.Instant
 
 class AppPreferences(private val context: Context) {
     private val preferences = context.getSharedPreferences("pocket_preferences", Context.MODE_PRIVATE)
+    internal val dbBridge by lazy { JarvisDatabaseBridge(context) }
 
     var onboardingComplete: Boolean
         get() = preferences.getBoolean("onboarding_complete", false)
@@ -69,8 +70,11 @@ class AppPreferences(private val context: Context) {
         set(value) { preferences.edit().putString("github_login", value).apply() }
 
     var githubToken: String
-        get() = preferences.getString("github_token", "") ?: ""
-        set(value) { preferences.edit().putString("github_token", value).apply() }
+        get() = dbBridge.getSecureSecret("github_token") ?: preferences.getString("github_token", "") ?: ""
+        set(value) {
+            dbBridge.storeSecureSecret("github_token", value)
+            preferences.edit().remove("github_token").apply()
+        }
 
     /** Custom GitHub OAuth App Client ID. When blank, uses the shared GitHub CLI client ID. */
     var githubClientId: String
@@ -287,6 +291,30 @@ class AppPreferences(private val context: Context) {
     }
 
     fun saveProjects(projects: List<Project>) {
+        dbBridge.saveProjects(projects)
+        saveProjectsLegacy(projects)
+    }
+
+    fun loadProjects(): List<Project> {
+        val dbProjects = dbBridge.loadProjects()
+        if (dbProjects.isNotEmpty()) return dbProjects
+
+        // Automatic zero-data-loss migration on first launch
+        val legacy = loadProjectsLegacy()
+        if (legacy.isNotEmpty()) {
+            dbBridge.migrateFromLegacy(
+                legacyProjects = legacy,
+                legacyChatsProvider = ::loadProjectChatsLegacy,
+                legacyMessagesProvider = ::loadMessagesLegacy,
+            )
+            val migrated = dbBridge.loadProjects()
+            if (migrated.isNotEmpty()) return migrated
+            return legacy
+        }
+        return emptyList()
+    }
+
+    private fun saveProjectsLegacy(projects: List<Project>) {
         val arr = JSONArray()
         projects.forEach { p ->
             arr.put(JSONObject().apply {
@@ -305,7 +333,7 @@ class AppPreferences(private val context: Context) {
         preferences.edit().putString("projects_json", arr.toString()).apply()
     }
 
-    fun loadProjects(): List<Project> {
+    private fun loadProjectsLegacy(): List<Project> {
         val raw = preferences.getString("projects_json", null) ?: return emptyList()
         var needsSave = false
         val list = runCatching {
@@ -361,7 +389,7 @@ class AppPreferences(private val context: Context) {
         }.getOrDefault(emptyList())
 
         if (needsSave && list.isNotEmpty()) {
-            saveProjects(list)
+            saveProjectsLegacy(list)
         }
         return list
     }
@@ -369,6 +397,11 @@ class AppPreferences(private val context: Context) {
     private val chatsDir = File(context.filesDir, "chats").also { it.mkdirs() }
 
     fun saveProjectChats(projectId: String, chats: List<ProjectChat>) {
+        dbBridge.saveProjectChats(projectId, chats)
+        saveProjectChatsLegacy(projectId, chats)
+    }
+
+    private fun saveProjectChatsLegacy(projectId: String, chats: List<ProjectChat>) {
         val projectDir = File(chatsDir, projectId).also { it.mkdirs() }
         val arr = JSONArray()
         chats.forEach { chat ->
@@ -383,6 +416,17 @@ class AppPreferences(private val context: Context) {
     }
 
     fun loadProjectChats(projectId: String): List<ProjectChat> {
+        val dbChats = dbBridge.loadProjectChats(projectId)
+        if (dbChats.isNotEmpty()) return dbChats
+        val legacyChats = loadProjectChatsLegacy(projectId)
+        if (legacyChats.isNotEmpty()) {
+            dbBridge.saveProjectChats(projectId, legacyChats)
+            return legacyChats
+        }
+        return emptyList()
+    }
+
+    private fun loadProjectChatsLegacy(projectId: String): List<ProjectChat> {
         val projectDir = File(chatsDir, projectId).also { it.mkdirs() }
         val index = File(projectDir, "index.json")
         if (index.exists()) {
@@ -410,13 +454,18 @@ class AppPreferences(private val context: Context) {
             createdAtMillis = now,
             updatedAtMillis = now,
         )
-        saveProjectChats(projectId, listOf(chat))
-        if (legacyMessages.isNotEmpty()) saveMessages(projectId, chat.id, legacyMessages)
+        saveProjectChatsLegacy(projectId, listOf(chat))
+        if (legacyMessages.isNotEmpty()) saveMessagesLegacy(projectId, chat.id, legacyMessages)
         return listOf(chat)
     }
 
     @Synchronized
     fun saveMessages(projectId: String, chatId: String, messages: List<ChatMessage>) {
+        dbBridge.saveMessages(projectId, chatId, messages)
+        saveMessagesLegacy(projectId, chatId, messages)
+    }
+
+    private fun saveMessagesLegacy(projectId: String, chatId: String, messages: List<ChatMessage>) {
         val arr = JSONArray()
         messages.forEach { m ->
             arr.put(JSONObject().apply {
@@ -459,11 +508,23 @@ class AppPreferences(private val context: Context) {
     }
 
     fun loadMessages(projectId: String, chatId: String): List<ChatMessage> {
+        val dbMessages = dbBridge.loadMessages(projectId, chatId)
+        if (dbMessages.isNotEmpty()) return dbMessages
+        val legacyMessages = loadMessagesLegacy(projectId, chatId)
+        if (legacyMessages.isNotEmpty()) {
+            dbBridge.saveMessages(projectId, chatId, legacyMessages)
+            return legacyMessages
+        }
+        return emptyList()
+    }
+
+    private fun loadMessagesLegacy(projectId: String, chatId: String): List<ChatMessage> {
         val file = File(File(chatsDir, projectId), "$chatId.json")
         return loadLegacyMessages(file)
     }
 
     fun deleteProjectChats(projectId: String) {
+        dbBridge.deleteProject(projectId)
         File(chatsDir, projectId).deleteRecursively()
         File(chatsDir, "$projectId.json").delete()
     }

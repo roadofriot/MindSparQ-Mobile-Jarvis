@@ -214,6 +214,9 @@ insertChat:
 INSERT OR REPLACE INTO chat (id, project_id, title, agent, mode, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?);
 
+deleteChatsForProject:
+DELETE FROM chat WHERE project_id = ?;
+
 -- Queries: Message
 selectMessagesForChat:
 SELECT * FROM message WHERE chat_id = ? ORDER BY created_at ASC;
@@ -221,6 +224,16 @@ SELECT * FROM message WHERE chat_id = ? ORDER BY created_at ASC;
 insertMessage:
 INSERT INTO message (id, chat_id, role, content_json, model_ref, tokens_in, tokens_out, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+insertOrReplaceMessage:
+INSERT OR REPLACE INTO message (id, chat_id, role, content_json, model_ref, tokens_in, tokens_out, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+deleteMessagesForChat:
+DELETE FROM message WHERE chat_id = ?;
+
+countProjects:
+SELECT count(*) FROM project;
 
 -- Queries: Task & Evidence
 selectTasksForProject:
