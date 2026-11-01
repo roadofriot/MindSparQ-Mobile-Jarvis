@@ -609,6 +609,7 @@ private fun RootScreenHost(
                     onRefreshGitHub = viewModel::refreshGitHubRepositories,
                     onDisconnectGitHub = viewModel::disconnectGitHub,
                     onConnectGitHubWithToken = viewModel::connectGitHubWithToken,
+                    keyPoolManager = viewModel.keyPoolManager,
                     onGetGeminiApiKey = {
                         val geminiKey = viewModel.getSavedApiKey(ProviderKind.GEMINI)
                         val openRouterKey = viewModel.getSavedApiKey(ProviderKind.LLM_ROUTER)
@@ -622,7 +623,6 @@ private fun RootScreenHost(
                         val clean = key.trim()
                         if (clean.startsWith("sk-or-")) {
                             viewModel.saveApiKey(ProviderKind.LLM_ROUTER, clean)
-                            viewModel.saveApiKey(ProviderKind.GEMINI, clean)
                         } else {
                             viewModel.saveGeminiApiKey(clean)
                         }

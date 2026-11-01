@@ -137,7 +137,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     )
 
-    internal val dshRuntime = DshRuntimeBridge(application) { profile: ProviderProfile ->
+    internal val dshRuntime = DshRuntimeBridge(
+        context = application,
+        keyPoolManager = keyPoolManager,
+    ) { profile: ProviderProfile ->
         val saved = vault.get(profile.kind.name).orEmpty()
         if (saved.isNotBlank()) {
             saved

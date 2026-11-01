@@ -1,5 +1,6 @@
 package com.jarves.mh.network
 
+import com.mindsparq.jarvis.ai.gateway.KeyPoolManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -20,7 +21,8 @@ sealed interface VoiceIntent {
 
 /**
  * High-performance, natural live conversational client for MindSparQ Jarvis.
- * Directly streams responses from Google Gemini 2.5 Flash / OpenRouter.
+ * Directly streams responses from Google Gemini 2.5 / 2.0 / OpenRouter.
+ * Fully integrated with KeyPoolManager for multi-key quota tracking, key rotation, and failover.
  */
 object GeminiLiveVoiceClient {
 
@@ -46,10 +48,11 @@ object GeminiLiveVoiceClient {
     }
 
     private val GEMINI_MODELS = listOf(
-        "gemini-flash-lite-latest",
-        "gemini-3.5-flash-lite",
-        "gemini-3.1-flash-lite",
-        "gemini-3.8-flash",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash-lite",
     )
     private const val OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
@@ -81,17 +84,26 @@ object GeminiLiveVoiceClient {
                 }
             }
         } else {
-            // Google Gemini API keys can start with 'AQ.' or 'AIzaSy'
+            // Google Gemini / Antigravity API keys can start with 'AQ.', 'ya29.', or 'AIzaSy'
             return@withContext runCatching {
-                val url = URL("https://generativelanguage.googleapis.com/v1beta/models?key=$cleanKey")
+                val urlString = if (cleanKey.startsWith("AQ.") || cleanKey.startsWith("ya29.")) {
+                    "https://generativelanguage.googleapis.com/v1beta/models"
+                } else {
+                    "https://generativelanguage.googleapis.com/v1beta/models?key=$cleanKey"
+                }
+                val url = URL(urlString)
                 val conn = (url.openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
+                    setRequestProperty("x-goog-api-key", cleanKey)
+                    if (cleanKey.startsWith("AQ.") || cleanKey.startsWith("ya29.")) {
+                        setRequestProperty("Authorization", "Bearer $cleanKey")
+                    }
                     connectTimeout = 8_000
                     readTimeout = 8_000
                 }
                 val code = conn.responseCode
                 if (code in 200..299) {
-                    "Google Gemini API Key valid & connected (gemini-flash-lite)!"
+                    "Google Gemini API Key valid & connected!"
                 } else {
                     val errStream = conn.errorStream ?: conn.inputStream
                     val errText = BufferedReader(InputStreamReader(errStream, "UTF-8")).use { it.readText() }
@@ -107,31 +119,77 @@ object GeminiLiveVoiceClient {
         userPrompt: String,
         history: List<Pair<String, String>>, // sender ("USER" or "AI") to text
         languageInstruction: String = "Nepali and English",
+        keyPool: KeyPoolManager? = null,
+        modelCatalog: List<String>? = null,
     ): Result<String> = withContext(Dispatchers.IO) {
         val cleanKey = apiKey.trim()
+        val isExplicitOpenRouter = cleanKey.startsWith("sk-or-")
 
-        // 1. If key is OpenRouter
-        if (cleanKey.startsWith("sk-or-")) {
-            val orResult = callOpenRouter(cleanKey, userPrompt, history)
-            if (orResult.isSuccess) return@withContext orResult
-            // If OpenRouter failed, try local Ollama before reporting failure
-            val localOllama = callLocalOllama(userPrompt, history)
-            if (localOllama.isSuccess) return@withContext localOllama
-            return@withContext orResult
+        // 1. Try Google Gemini with multi-key pool rotation if not exclusively OpenRouter key
+        if (!isExplicitOpenRouter && (cleanKey.isNotBlank() || keyPool != null)) {
+            var attempt = 0
+            while (attempt < 3) {
+                attempt++
+                val candidateKey = keyPool?.acquireCandidateKey(com.jarves.mh.model.ProviderKind.GEMINI.name)
+                val keyToUse = candidateKey?.secretKey ?: if (attempt == 1) cleanKey else ""
+                if (keyToUse.isBlank()) break
+
+                val geminiResult = callGoogleGemini(keyToUse, userPrompt, history, languageInstruction, modelCatalog)
+                if (geminiResult.isSuccess) {
+                    candidateKey?.let { keyPool.reportSuccess(it.id, it.quotaScopeId, 0, 0) }
+                    return@withContext geminiResult
+                }
+
+                val err = geminiResult.exceptionOrNull()
+                val errMsg = err?.message.orEmpty()
+                if (candidateKey != null) {
+                    if (errMsg.contains("401") || errMsg.contains("403") || errMsg.contains("auth failed", ignoreCase = true)) {
+                        keyPool.reportKeyAuthFailure(candidateKey.id, errMsg)
+                    } else if (errMsg.contains("429") || errMsg.contains("quota", ignoreCase = true) || errMsg.contains("resource_exhausted", ignoreCase = true)) {
+                        val isQuota = errMsg.contains("quota", ignoreCase = true) || errMsg.contains("resource_exhausted", ignoreCase = true)
+                        if (isQuota) {
+                            keyPool.reportProjectQuotaExhausted(candidateKey.quotaScopeId, error = errMsg)
+                        } else {
+                            keyPool.reportRateLimit(candidateKey.id, 60_000L)
+                        }
+                    }
+                }
+            }
         }
 
-        // 2. If key is Google Gemini / Antigravity (starts with AQ. or AIzaSy or other non-OpenRouter key)
-        if (cleanKey.isNotBlank()) {
-            val geminiResult = callGoogleGemini(cleanKey, userPrompt, history, languageInstruction)
-            if (geminiResult.isSuccess) return@withContext geminiResult
+        // 2. Try OpenRouter with multi-key pool rotation
+        if (isExplicitOpenRouter || keyPool != null) {
+            var attempt = 0
+            while (attempt < 3) {
+                attempt++
+                val candidateKey = keyPool?.acquireCandidateKey(com.jarves.mh.model.ProviderKind.LLM_ROUTER.name)
+                val keyToUse = candidateKey?.secretKey ?: if (attempt == 1 && isExplicitOpenRouter) cleanKey else ""
+                if (keyToUse.isBlank()) break
+
+                val orResult = callOpenRouter(keyToUse, userPrompt, history, modelCatalog)
+                if (orResult.isSuccess) {
+                    candidateKey?.let { keyPool.reportSuccess(it.id, it.quotaScopeId, 0, 0) }
+                    return@withContext orResult
+                }
+
+                val err = orResult.exceptionOrNull()
+                val errMsg = err?.message.orEmpty()
+                if (candidateKey != null) {
+                    if (errMsg.contains("401") || errMsg.contains("403")) {
+                        keyPool.reportKeyAuthFailure(candidateKey.id, errMsg)
+                    } else if (errMsg.contains("429")) {
+                        keyPool.reportRateLimit(candidateKey.id, 60_000L)
+                    }
+                }
+            }
         }
 
-        // 3. Try local Ollama if running
+        // 3. Fallback to local Ollama if running
         val localOllama = callLocalOllama(userPrompt, history)
         if (localOllama.isSuccess) return@withContext localOllama
 
         return@withContext Result.failure(
-            IllegalStateException("Please tap [🔑] at top to configure your Google Gemini (AQ. / AIzaSy...) or OpenRouter (sk-or-...) API key.")
+            IllegalStateException("No available AI capacity found across configured Gemini, OpenRouter, and local models. Tap [🔑] to check keys and quota.")
         )
     }
 
@@ -140,11 +198,18 @@ object GeminiLiveVoiceClient {
         userPrompt: String,
         history: List<Pair<String, String>>,
         languageInstruction: String,
+        modelCatalog: List<String>? = null,
     ): Result<String> {
         var lastError: Exception? = null
-        for (model in GEMINI_MODELS) {
-            val targetUrl = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
-            val res = executeGeminiPost(targetUrl, userPrompt, history, languageInstruction)
+        val models = modelCatalog?.filter { it.startsWith("gemini") }?.takeIf { it.isNotEmpty() } ?: GEMINI_MODELS
+        for (model in models) {
+            val isToken = apiKey.startsWith("AQ.") || apiKey.startsWith("ya29.")
+            val targetUrl = if (isToken) {
+                "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
+            } else {
+                "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
+            }
+            val res = executeGeminiPost(targetUrl, apiKey, userPrompt, history, languageInstruction)
             if (res.isSuccess) return res
             lastError = res.exceptionOrNull() as? Exception ?: Exception(res.toString())
         }
@@ -153,6 +218,7 @@ object GeminiLiveVoiceClient {
 
     private fun executeGeminiPost(
         targetUrl: String,
+        apiKey: String,
         userPrompt: String,
         history: List<Pair<String, String>>,
         languageInstruction: String,
@@ -161,6 +227,10 @@ object GeminiLiveVoiceClient {
         val conn = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("x-goog-api-key", apiKey)
+            if (apiKey.startsWith("AQ.") || apiKey.startsWith("ya29.")) {
+                setRequestProperty("Authorization", "Bearer $apiKey")
+            }
             connectTimeout = 12_000
             readTimeout = 30_000
             doOutput = true
@@ -233,29 +303,31 @@ You are MindSparQ Jarvis, a warm, charismatic, and emotionally intelligent senio
         }
         val reply = sb.toString().trim()
 
-        return if (reply.isNotBlank()) {
+        return if (reply.isNotBlank() && !reply.equals("null", ignoreCase = true)) {
             Result.success(reply)
         } else {
-            Result.failure(Exception("No reply generated from Gemini."))
+            Result.failure(Exception("No content returned from Gemini candidate."))
         }
     }
 
     private val FREE_MODELS_CASCADE = listOf(
-        "nvidia/nemotron-3.5-lightning:free",
-        "google/gemma-4-26b-a4b-it:free",
-        "google/gemma-4-31b-it:free",
-        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-        "cohere/north-mini-code:free",
-        "poolside/laguna-s-2.1:free",
+        "qwen/qwen-2.5-coder-32b-instruct:free",
+        "deepseek/deepseek-chat:free",
+        "deepseek/deepseek-r1:free",
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "google/gemini-2.0-flash-exp:free",
+        "mistralai/mistral-small-24b-instruct-2501:free",
     )
 
     private fun callOpenRouter(
         apiKey: String,
         userPrompt: String,
         history: List<Pair<String, String>>,
+        modelCatalog: List<String>? = null,
     ): Result<String> {
         var lastError: Exception? = null
-        for (modelId in FREE_MODELS_CASCADE) {
+        val models = modelCatalog?.takeIf { it.isNotEmpty() } ?: FREE_MODELS_CASCADE
+        for (modelId in models) {
             val res = executeOpenRouterPost(apiKey, modelId, userPrompt, history)
             if (res.isSuccess) return res
             lastError = res.exceptionOrNull() as? Exception ?: Exception(res.toString())
@@ -302,7 +374,7 @@ You are MindSparQ Jarvis, a warm, charismatic, and emotionally intelligent senio
             put("model", modelId)
             put("messages", messagesArray)
             put("temperature", 0.6)
-            put("max_tokens", 350)
+            put("max_tokens", 450)
         }
 
         OutputStreamWriter(conn.outputStream, "UTF-8").use { it.write(jsonBody.toString()) }
@@ -328,6 +400,10 @@ You are MindSparQ Jarvis, a warm, charismatic, and emotionally intelligent senio
         if (reply.isBlank() || reply.equals("null", ignoreCase = true)) {
             val rawReasoning = message?.opt("reasoning")
             if (rawReasoning != null && rawReasoning != JSONObject.NULL) reply = rawReasoning.toString().trim()
+        }
+        if (reply.isBlank() || reply.equals("null", ignoreCase = true)) {
+            val rawReasoningContent = message?.opt("reasoning_content")
+            if (rawReasoningContent != null && rawReasoningContent != JSONObject.NULL) reply = rawReasoningContent.toString().trim()
         }
 
         return if (reply.isNotBlank() && !reply.equals("null", ignoreCase = true)) {
@@ -376,9 +452,8 @@ You are MindSparQ Jarvis, a warm, charismatic, and emotionally intelligent senio
             val responseText = BufferedReader(InputStreamReader(conn.inputStream, "UTF-8")).use { it.readText() }
             val choices = JSONObject(responseText).optJSONArray("choices")
             val reply = choices?.optJSONObject(0)?.optJSONObject("message")?.optString("content")
-            if (!reply.isNullOrBlank()) return@runCatching reply.trim()
+            if (!reply.isNullOrBlank() && !reply.equals("null", ignoreCase = true)) return@runCatching reply.trim()
         }
         throw IllegalStateException("Ollama offline")
     }
 }
-

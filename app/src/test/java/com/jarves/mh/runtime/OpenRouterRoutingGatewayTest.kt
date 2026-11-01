@@ -5,6 +5,7 @@ import com.jarves.mh.model.ProviderProfile
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OpenRouterRoutingGatewayTest {
@@ -37,5 +38,20 @@ class OpenRouterRoutingGatewayTest {
         applyOpenRouterRouting(source, ProviderProfile(ProviderKind.LLM_ROUTER))
 
         assertFalse(source.has("provider"))
+    }
+
+    @Test
+    fun localFormatGatewayHandlesOpenRouterConfiguration() {
+        val profile = ProviderProfile(
+            kind = ProviderKind.LLM_ROUTER,
+            openRouterProviderOrder = "anthropic",
+            openRouterAllowFallbacks = true,
+        )
+        val gateway = LocalFormatGateway(profile, apiKey = "test-or-key").start()
+        try {
+            assertTrue(gateway.url.startsWith("http://127.0.0.1:"))
+        } finally {
+            gateway.close()
+        }
     }
 }

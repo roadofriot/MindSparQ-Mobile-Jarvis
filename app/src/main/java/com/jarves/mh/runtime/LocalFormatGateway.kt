@@ -1,7 +1,8 @@
 package com.jarves.mh.runtime
 
-import com.jarves.mh.model.ProviderProfile
 import com.jarves.mh.model.ProviderKind
+import com.jarves.mh.model.ProviderProfile
+import com.jarves.mh.model.ProviderProtocol
 import com.mindsparq.jarvis.ai.gateway.KeyPoolManager
 import android.util.Log
 import java.io.BufferedInputStream
@@ -17,7 +18,21 @@ import java.util.concurrent.atomic.AtomicBoolean
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Small loopback-only Anthropic-to-OpenAI compatibility bridge for Claude Code and coding agents. */
+/** Adds MindSparQ Harness' saved OpenRouter routing policy to Anthropic Messages or OpenAI requests. */
+internal fun applyOpenRouterRouting(source: JSONObject, profile: ProviderProfile): JSONObject {
+    val providers = profile.openRouterProviders
+    if (providers.isEmpty()) return source
+    val routing = JSONObject()
+        .put("order", JSONArray(providers))
+        .put("allow_fallbacks", profile.openRouterAllowFallbacks)
+    return source.put("provider", routing)
+}
+
+/**
+ * Universal loopback compatibility gateway for Claude Code and coding agents.
+ * Translates Anthropic Messages to OpenAI Chat Completions or OpenRouter routing as required.
+ * Handles KeyPool multi-key quota management, cooldowns, and automatic provider failover.
+ */
 internal class LocalFormatGateway(
     private val profile: ProviderProfile,
     private val apiKey: String,
@@ -93,6 +108,45 @@ internal class LocalFormatGateway(
                         break
                     }
 
+                    // Native Anthropic-compatible routing (OpenRouter / Anthropic gateways)
+                    if (targetProfile.kind.protocol == ProviderProtocol.OPENROUTER) {
+                        val routedBody = applyOpenRouterRouting(JSONObject(bodyBytes.decodeToString()), targetProfile)
+                        activeModelUsed = targetProfile.model
+                        val res = callAnthropicUpstream(path, routedBody, targetProfile, keyToUse, headers, output)
+                        val code = res.first
+                        val body = res.second
+
+                        if (code in 200..299) {
+                            candidateKey?.let { keyPool?.reportSuccess(it.id, it.quotaScopeId, 0, 0) }
+                            return // Output already written/streamed
+                        }
+
+                        if (code == 401 || code == 403) {
+                            Log.w("FormatGateway", "Auth error on OpenRouter key ${candidateKey?.label ?: "active"}: $body")
+                            candidateKey?.let { keyPool?.reportKeyAuthFailure(it.id, body) }
+                            continue
+                        }
+
+                        if (code == 429) {
+                            val isQuota = body.contains("quota", ignoreCase = true) ||
+                                body.contains("resource_exhausted", ignoreCase = true) ||
+                                body.contains("daily", ignoreCase = true)
+
+                            if (isQuota && candidateKey != null) {
+                                Log.w("FormatGateway", "Project quota exhausted on ${candidateKey.quotaScopeId}: $body")
+                                keyPool?.reportProjectQuotaExhausted(candidateKey.quotaScopeId, error = body)
+                                continue
+                            } else {
+                                candidateKey?.let { keyPool?.reportRateLimit(it.id, 60_000L) }
+                                continue
+                            }
+                        }
+
+                        Log.w("FormatGateway", "OpenRouter provider error $code: $body")
+                        break
+                    }
+
+                    // Format-translation routing (OpenAI chat / responses protocol)
                     val openAiReq = toOpenAi(anthropic, targetProfile)
                     activeModelUsed = targetProfile.model
                     val res = callProvider(openAiReq, targetProfile, keyToUse)
@@ -108,7 +162,6 @@ internal class LocalFormatGateway(
                     if (code == 401 || code == 403) {
                         Log.w("FormatGateway", "Auth error on key ${candidateKey?.label ?: "active"}: $body")
                         candidateKey?.let { keyPool?.reportKeyAuthFailure(it.id, body) }
-                        // Try next key
                         continue
                     }
 
@@ -120,7 +173,6 @@ internal class LocalFormatGateway(
                         if (isQuota && candidateKey != null) {
                             Log.w("FormatGateway", "Project quota exhausted on ${candidateKey.quotaScopeId}: $body")
                             keyPool?.reportProjectQuotaExhausted(candidateKey.quotaScopeId, error = body)
-                            // Next iteration of while(true) skips all keys in this quota scope!
                             continue
                         } else {
                             candidateKey?.let { keyPool?.reportRateLimit(it.id, 60_000L) }
@@ -163,12 +215,61 @@ internal class LocalFormatGateway(
         }
     }
 
+    private fun callAnthropicUpstream(
+        path: String,
+        body: JSONObject,
+        targetProfile: ProviderProfile,
+        targetKey: String,
+        headers: Map<String, String>,
+        output: BufferedOutputStream,
+    ): Pair<Int, String> {
+        val endpoint = targetProfile.resolvedBaseUrl.trimEnd('/') + path
+        if (!com.jarves.mh.network.LocalNetwork.isPlainHttpAllowed(endpoint)) {
+            return 400 to errorJson("invalid_request_error", "Plain http:// is only allowed for local network addresses")
+        }
+        val connection = URL(endpoint).openConnection() as HttpURLConnection
+        return try {
+            connection.requestMethod = "POST"
+            connection.connectTimeout = 20_000
+            connection.readTimeout = 180_000
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("Accept", headers["accept"] ?: "application/json")
+            if (targetKey.isNotBlank() && targetKey != "no-key-required") {
+                connection.setRequestProperty("Authorization", "Bearer $targetKey")
+            }
+            connection.setRequestProperty("anthropic-version", headers["anthropic-version"] ?: "2023-06-01")
+            headers["anthropic-beta"]?.let { connection.setRequestProperty("anthropic-beta", it) }
+            connection.outputStream.use { it.write(body.toString().toByteArray()) }
+
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            if (code in 200..299) {
+                val contentType = connection.contentType ?: "application/json"
+                output.write(
+                    "HTTP/1.1 $code OK\r\nContent-Type: $contentType\r\nConnection: close\r\n\r\n".toByteArray(),
+                )
+                stream?.use { it.copyTo(output, DEFAULT_BUFFER_SIZE) }
+                output.flush()
+                code to ""
+            } else {
+                val errBody = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                code to errBody
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     private fun toOpenAi(source: JSONObject, targetProfile: ProviderProfile = profile): JSONObject {
         val target = JSONObject()
             .put("model", normalizeModel(targetProfile.model))
             .put("stream", false)
             .put("max_tokens", source.optInt("max_tokens", 4096))
         if (source.has("temperature")) target.put("temperature", source.get("temperature"))
+        if (targetProfile.kind == ProviderKind.LLM_ROUTER) {
+            applyOpenRouterRouting(target, targetProfile)
+        }
         val messages = JSONArray()
         source.opt("system")?.let { system ->
             val text = when (system) {
@@ -306,13 +407,11 @@ internal class LocalFormatGateway(
 
     /**
      * Only forward requests that present the provider key Claude Code was configured with.
-     *
-     * Binding to 127.0.0.1 keeps this server off the network, but it does not make it
-     * private: on Android any app with the INTERNET permission can connect to a loopback
-     * port. Without this check, another installed app could have its requests forwarded
-     * upstream on the user's key.
+     * Binding to 127.0.0.1 keeps this server off the network, but on Android any app with
+     * the INTERNET permission can connect to a loopback port.
      */
     private fun isAuthorized(headers: Map<String, String>): Boolean {
+        if (apiKey.isBlank() || apiKey == "no-key-required") return true
         val presented = headers["x-api-key"]
             ?: headers["authorization"]?.removePrefix("Bearer ")?.trim()
             ?: return false

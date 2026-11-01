@@ -127,7 +127,6 @@ class ClaudeRuntimeBridge(
         val effectiveSecret = secret.ifBlank { "no-key-required" }
 
         var formatGateway: LocalFormatGateway? = null
-        var openRouterGateway: OpenRouterRoutingGateway? = null
         runCatching {
             RuntimeTaskController.stopAction = {
                 userStopRequested = true
@@ -149,22 +148,22 @@ class ClaudeRuntimeBridge(
             val workspace = ensureWorkspace(projectId)
             createCheckpoint(projectId, workspace)
             val before = snapshot(workspace)
-            formatGateway = if (provider.kind.protocol in setOf(
+            formatGateway = if (
+                provider.kind.protocol in setOf(
                     com.jarves.mh.model.ProviderProtocol.OPENAI_CHAT,
                     com.jarves.mh.model.ProviderProtocol.OPENAI_RESPONSES,
-                )) LocalFormatGateway(
-                    profile = provider,
-                    apiKey = effectiveSecret,
-                    keyPool = keyPoolManager,
-                    failoverProviders = failoverProfiles?.invoke() ?: emptyList(),
-                ).start() else null
-            openRouterGateway = if (
-                provider.kind == ProviderKind.LLM_ROUTER && provider.openRouterProviders.isNotEmpty()
-            ) OpenRouterRoutingGateway(provider, effectiveSecret).start() else null
+                    com.jarves.mh.model.ProviderProtocol.OPENROUTER,
+                ) || provider.kind == ProviderKind.LLM_ROUTER
+            ) LocalFormatGateway(
+                profile = provider,
+                apiKey = effectiveSecret,
+                keyPool = keyPoolManager,
+                failoverProviders = failoverProfiles?.invoke() ?: emptyList(),
+            ).start() else null
             val launch = RuntimeLaunchConfigBuilder.build(
                 provider,
                 authToken = effectiveSecret,
-                localGatewayUrl = formatGateway?.url ?: openRouterGateway?.url,
+                localGatewayUrl = formatGateway?.url,
             )
             Log.d("ClaudeBridge", "Provider: ${provider.kind}, Model: ${provider.model}, BaseUrl: ${provider.baseUrl}")
             Log.d("ClaudeBridge", "Launch environment keys: ${launch.environment.keys}")
@@ -288,7 +287,6 @@ class ClaudeRuntimeBridge(
             }
         }
         formatGateway?.close()
-        openRouterGateway?.close()
         activeProcess = null
         activeSessionId = null
         RuntimeTaskController.stopAction = null

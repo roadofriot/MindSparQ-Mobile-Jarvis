@@ -1,5 +1,7 @@
 package com.jarves.mh.ui
 
+import com.mindsparq.jarvis.ai.gateway.KeyPoolManager
+
 import android.app.Activity
 import android.content.ClipboardManager
 import android.content.Context
@@ -121,6 +123,7 @@ data class JarvisVoiceMessage(
 fun LiveVoiceProjectArchitectDialog(
     geminiApiKey: String = "",
     onSaveGeminiApiKey: (String) -> Unit = {},
+    keyPoolManager: KeyPoolManager? = null,
     onDismiss: () -> Unit,
     onCreateProject: (name: String, template: AndroidTemplate?, prd: String, trd: String, architecture: String, decisions: String) -> Unit,
 ) {
@@ -277,6 +280,7 @@ fun LiveVoiceProjectArchitectDialog(
                             userPrompt = input,
                             history = history,
                             languageInstruction = "Nepali and English naturally",
+                            keyPool = keyPoolManager,
                         )
                     }
 
@@ -284,8 +288,16 @@ fun LiveVoiceProjectArchitectDialog(
                         messages.add(JarvisVoiceMessage(sender = "JARVIS", text = reply))
                         speak(reply)
                     }.onFailure { err ->
-                        val cleanErrMsg = err.localizedMessage?.replace("java.lang.Exception: ", "")?.replace("java.lang.IllegalStateException: ", "") ?: "Connection issue"
-                        val fallback = "I heard you, sir, but encountered an issue: $cleanErrMsg"
+                        val rawMsg = err.localizedMessage.orEmpty()
+                        val cleanErrMsg = rawMsg
+                            .replace("java.lang.Exception: ", "")
+                            .replace("java.lang.IllegalStateException: ", "")
+                            .trim()
+                        val fallback = if (cleanErrMsg.isBlank() || cleanErrMsg.equals("null", ignoreCase = true)) {
+                            "I heard you, sir, but could not reach the AI gateway. Please check your network or API keys in [🔑]."
+                        } else {
+                            "I heard you, sir, but encountered an issue: $cleanErrMsg"
+                        }
                         messages.add(JarvisVoiceMessage(sender = "JARVIS", text = fallback))
                         speak(fallback)
                     }

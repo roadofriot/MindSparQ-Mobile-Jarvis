@@ -1,5 +1,7 @@
 package com.jarves.mh.runtime
 
+import com.mindsparq.jarvis.ai.gateway.KeyPoolManager
+
 import android.content.Context
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -43,6 +45,7 @@ import org.json.JSONObject
  */
 class DshRuntimeBridge(
     private val context: Context,
+    private val keyPoolManager: KeyPoolManager? = null,
     private val secretFor: (ProviderProfile) -> String?,
 ) : RuntimeBridge {
     private val installer = RuntimeInstaller(context)
@@ -87,7 +90,7 @@ class DshRuntimeBridge(
             return@withContext sessionId
         }
 
-        var openRouterGateway: OpenRouterRoutingGateway? = null
+        var formatGateway: LocalFormatGateway? = null
         runCatching {
             RuntimeTaskController.stopAction = {
                 userStopRequested = true
@@ -108,11 +111,16 @@ class DshRuntimeBridge(
             checkpoints.createCheckpoint(projectId, workspace)
             val before = checkpoints.snapshot(workspace)
             val baseRoute = DshRouteMapper.forProfile(provider)
-            openRouterGateway = if (
-                provider.kind == ProviderKind.LLM_ROUTER && provider.openRouterProviders.isNotEmpty()
-            ) OpenRouterRoutingGateway(provider, effectiveSecret).start() else null
-            val route = if (openRouterGateway != null && baseRoute.custom != null) {
-                baseRoute.copy(custom = baseRoute.custom.copy(baseUrl = openRouterGateway!!.url))
+            formatGateway = if (
+                provider.kind == ProviderKind.LLM_ROUTER ||
+                provider.kind.protocol in setOf(
+                    com.jarves.mh.model.ProviderProtocol.OPENAI_CHAT,
+                    com.jarves.mh.model.ProviderProtocol.OPENAI_RESPONSES,
+                    com.jarves.mh.model.ProviderProtocol.OPENROUTER,
+                )
+            ) LocalFormatGateway(provider, effectiveSecret, keyPool = keyPoolManager).start() else null
+            val route = if (formatGateway != null && baseRoute.custom != null) {
+                baseRoute.copy(custom = baseRoute.custom.copy(baseUrl = formatGateway.url))
             } else {
                 baseRoute
             }
@@ -191,7 +199,7 @@ class DshRuntimeBridge(
                 )
             }
         }
-        openRouterGateway?.close()
+        formatGateway?.close()
         activeProcess = null
         activeSessionId = null
         RuntimeTaskController.stopAction = null
