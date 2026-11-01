@@ -451,21 +451,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     providerId = kind.name,
                     secretKey = cred.secret,
                     label = cred.name,
-                    priority = if (cred.isActive) 1 else 10 + index,
+                    accountLabel = cred.accountLabel,
+                    quotaScopeId = cred.quotaScopeId,
+                    billingTier = if (cred.billingTier.equals("PAID", ignoreCase = true)) com.mindsparq.jarvis.core.model.BillingTier.PAID else com.mindsparq.jarvis.core.model.BillingTier.FREE,
+                    priority = if (cred.isActive) 1 else cred.priority,
+                    state = when (cred.state) {
+                        "COOLING" -> com.mindsparq.jarvis.ai.gateway.KeyState.COOLING
+                        "EXHAUSTED" -> com.mindsparq.jarvis.ai.gateway.KeyState.EXHAUSTED
+                        "INVALID" -> com.mindsparq.jarvis.ai.gateway.KeyState.INVALID
+                        else -> com.mindsparq.jarvis.ai.gateway.KeyState.HEALTHY
+                    }
                 )
             }
             keyPoolManager.registerKeys(kind.name, managed)
         }
     }
-    private val claudeRuntime = ClaudeRuntimeBridge(application) { profile: ProviderProfile ->
-        val saved = vault.get(profile.kind.name).orEmpty()
-        if (saved.isNotBlank()) {
-            saved
-        } else {
-            val placeholder = localServerPlaceholderKey(profile)
-            if (placeholder.isNotBlank()) placeholder else null
+    private val claudeRuntime = ClaudeRuntimeBridge(
+        context = application,
+        secretFor = { profile: ProviderProfile ->
+            val saved = vault.get(profile.kind.name).orEmpty()
+            if (saved.isNotBlank()) {
+                saved
+            } else {
+                val placeholder = localServerPlaceholderKey(profile)
+                if (placeholder.isNotBlank()) placeholder else null
+            }
+        },
+        keyPoolManager = keyPoolManager,
+        failoverProfiles = {
+            val chain = resolveFailoverChain(_state.value.provider.failoverChain)
+            chain.map { kind ->
+                ProviderProfile(
+                    kind = kind,
+                    baseUrl = kind.defaultBaseUrl,
+                    model = kind.defaultModel,
+                )
+            }
         }
-    }
+    )
     private val dshRuntime = DshRuntimeBridge(application) { profile: ProviderProfile ->
         val saved = vault.get(profile.kind.name).orEmpty()
         if (saved.isNotBlank()) {
@@ -2081,8 +2104,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun getSavedApiKeys(kind: ProviderKind): List<ApiKeyInfo> = vault.list(kind.name)
 
-    fun addApiKey(kind: ProviderKind, name: String, secret: String): List<ApiKeyInfo> {
-        vault.add(kind.name, name, secret)
+    fun addApiKey(kind: ProviderKind, name: String, secret: String): List<ApiKeyInfo> =
+        addApiKey(kind, name, secret, "Default Account", "default-project", if (kind == ProviderKind.GEMINI) "PAID" else "FREE", 10)
+
+    fun addApiKey(
+        kind: ProviderKind,
+        name: String,
+        secret: String,
+        accountLabel: String = "Default Account",
+        quotaScopeId: String = "default-project",
+        billingTier: String = "FREE",
+        priority: Int = 10,
+    ): List<ApiKeyInfo> {
+        vault.add(
+            providerId = kind.name,
+            name = name,
+            secret = secret,
+            accountLabel = accountLabel,
+            quotaScopeId = quotaScopeId,
+            billingTier = billingTier,
+            priority = priority,
+        )
         val keys = vault.list(kind.name)
         refreshActiveApiKey(kind)
         syncKeyPool()

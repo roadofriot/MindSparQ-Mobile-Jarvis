@@ -30,13 +30,27 @@ class ApiKeyVault(context: Context) {
     }
 
     @Synchronized
-    fun add(providerId: String, name: String, secret: String): ApiKeyInfo {
+    fun add(
+        providerId: String,
+        name: String,
+        secret: String,
+        accountLabel: String = "Default Account",
+        quotaScopeId: String = "default-project",
+        billingTier: String = "FREE",
+        priority: Int = 10,
+    ): ApiKeyInfo {
         require(secret.isNotBlank()) { "API key cannot be empty" }
         val entries = ensurePool(providerId).toMutableList()
         val entry = ApiKeyInfo(
             id = UUID.randomUUID().toString(),
             name = name.trim().ifBlank { "API key ${entries.size + 1}" }.take(60),
             isActive = entries.isEmpty(),
+            accountLabel = accountLabel.trim().ifBlank { "Default Account" },
+            quotaScopeId = quotaScopeId.trim().ifBlank { "default-project" },
+            billingTier = billingTier,
+            priority = priority,
+            state = "HEALTHY",
+            lastValidatedAt = System.currentTimeMillis(),
         )
         putEncrypted(secretKey(providerId, entry.id), secret)
         entries += entry.copy(isActive = false)
@@ -55,9 +69,41 @@ class ApiKeyVault(context: Context) {
     @Synchronized
     fun credentials(providerId: String): List<ApiKeyCredential> = list(providerId).mapNotNull { info ->
         getEncrypted(secretKey(providerId, info.id))?.let { secret ->
-            ApiKeyCredential(info.id, info.name, secret, info.isActive)
+            ApiKeyCredential(
+                id = info.id,
+                name = info.name,
+                secret = secret,
+                isActive = info.isActive,
+                accountLabel = info.accountLabel,
+                quotaScopeId = info.quotaScopeId,
+                billingTier = info.billingTier,
+                priority = info.priority,
+                state = info.state,
+            )
         }
     }.sortedByDescending(ApiKeyCredential::isActive)
+
+    @Synchronized
+    fun updateKeyMetadata(
+        providerId: String,
+        keyId: String,
+        state: String? = null,
+        lastError: String? = null,
+        cooldownUntil: Long? = null,
+        lastValidatedAt: Long? = null,
+    ) {
+        val entries = ensurePool(providerId).map { key ->
+            if (key.id == keyId) {
+                key.copy(
+                    state = state ?: key.state,
+                    lastError = lastError ?: key.lastError,
+                    cooldownUntil = cooldownUntil ?: key.cooldownUntil,
+                    lastValidatedAt = lastValidatedAt ?: key.lastValidatedAt,
+                )
+            } else key
+        }
+        savePool(providerId, entries)
+    }
 
     @Synchronized
     fun activate(providerId: String, keyId: String): Boolean {
@@ -142,14 +188,39 @@ class ApiKeyVault(context: Context) {
         (0 until array.length()).mapNotNull { index ->
             array.optJSONObject(index)?.let { item ->
                 val id = item.optString("id")
-                if (id.isBlank()) null else ApiKeyInfo(id, item.optString("name").ifBlank { "API key" })
+                if (id.isBlank()) null else ApiKeyInfo(
+                    id = id,
+                    name = item.optString("name").ifBlank { "API key" },
+                    isActive = false,
+                    accountLabel = item.optString("accountLabel").ifBlank { "Default Account" },
+                    quotaScopeId = item.optString("quotaScopeId").ifBlank { "default-project" },
+                    billingTier = item.optString("billingTier").ifBlank { "FREE" },
+                    priority = item.optInt("priority", 10),
+                    state = item.optString("state").ifBlank { "HEALTHY" },
+                    lastError = item.optString("lastError").takeIf { it.isNotBlank() },
+                    lastValidatedAt = item.optLong("lastValidatedAt", 0L),
+                    cooldownUntil = item.optLong("cooldownUntil", 0L),
+                )
             }
         }
     }.getOrDefault(emptyList())
 
     private fun savePool(providerId: String, entries: List<ApiKeyInfo>) {
         val array = JSONArray()
-        entries.forEach { array.put(JSONObject().put("id", it.id).put("name", it.name)) }
+        entries.forEach { entry ->
+            val obj = JSONObject()
+                .put("id", entry.id)
+                .put("name", entry.name)
+                .put("accountLabel", entry.accountLabel)
+                .put("quotaScopeId", entry.quotaScopeId)
+                .put("billingTier", entry.billingTier)
+                .put("priority", entry.priority)
+                .put("state", entry.state)
+                .put("lastError", entry.lastError ?: "")
+                .put("lastValidatedAt", entry.lastValidatedAt)
+                .put("cooldownUntil", entry.cooldownUntil)
+            array.put(obj)
+        }
         preferences.edit().putString(poolKey(providerId), array.toString()).apply()
     }
 
@@ -174,6 +245,28 @@ class ApiKeyVault(context: Context) {
     }
 }
 
-data class ApiKeyInfo(val id: String, val name: String, val isActive: Boolean = false)
+data class ApiKeyInfo(
+    val id: String,
+    val name: String,
+    val isActive: Boolean = false,
+    val accountLabel: String = "Default Account",
+    val quotaScopeId: String = "default-project",
+    val billingTier: String = "FREE",
+    val priority: Int = 10,
+    val state: String = "HEALTHY",
+    val lastError: String? = null,
+    val lastValidatedAt: Long = 0L,
+    val cooldownUntil: Long = 0L,
+)
 
-data class ApiKeyCredential(val id: String, val name: String, val secret: String, val isActive: Boolean)
+data class ApiKeyCredential(
+    val id: String,
+    val name: String,
+    val secret: String,
+    val isActive: Boolean,
+    val accountLabel: String = "Default Account",
+    val quotaScopeId: String = "default-project",
+    val billingTier: String = "FREE",
+    val priority: Int = 10,
+    val state: String = "HEALTHY",
+)

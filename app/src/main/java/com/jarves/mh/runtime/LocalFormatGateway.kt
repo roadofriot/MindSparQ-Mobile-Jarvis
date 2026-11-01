@@ -2,6 +2,7 @@ package com.jarves.mh.runtime
 
 import com.jarves.mh.model.ProviderProfile
 import com.jarves.mh.model.ProviderKind
+import com.mindsparq.jarvis.ai.gateway.KeyPoolManager
 import android.util.Log
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
@@ -16,10 +17,12 @@ import java.util.concurrent.atomic.AtomicBoolean
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Small loopback-only Anthropic-to-OpenAI compatibility bridge for Claude Code. */
+/** Small loopback-only Anthropic-to-OpenAI compatibility bridge for Claude Code and coding agents. */
 internal class LocalFormatGateway(
     private val profile: ProviderProfile,
     private val apiKey: String,
+    private val keyPool: KeyPoolManager? = null,
+    private val failoverProviders: List<ProviderProfile> = emptyList(),
 ) : AutoCloseable {
     private val running = AtomicBoolean(true)
     private val server = ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"))
@@ -77,21 +80,82 @@ internal class LocalFormatGateway(
         }
         runCatching {
             val anthropic = JSONObject(bodyBytes.decodeToString())
-            var upstream = callProvider(toOpenAi(anthropic))
-            if (upstream.first == 429 && (profile.kind == ProviderKind.LLM_ROUTER || profile.model.endsWith(":free"))) {
-                for (fallbackModel in FREE_FALLBACK_CASCADE) {
-                    if (fallbackModel == profile.model) continue
-                    Log.i("FormatGateway", "Upstream 429 received. Silently cascading to fallback free model: $fallbackModel")
-                    val fallbackReq = toOpenAi(anthropic).apply { put("model", normalizeModel(fallbackModel)) }
-                    upstream = callProvider(fallbackReq)
-                    if (upstream.first in 200..299) break
+            var upstream: Pair<Int, String>? = null
+            var activeModelUsed = profile.model
+            val candidateProviders = listOf(profile) + failoverProviders
+
+            providerLoop@ for (targetProfile in candidateProviders) {
+                while (true) {
+                    val candidateKey = keyPool?.acquireCandidateKey(targetProfile.kind.name)
+                    val keyToUse = candidateKey?.secretKey ?: if (targetProfile == profile) apiKey else ""
+                    if (keyToUse.isBlank() && targetProfile.kind != ProviderKind.OLLAMA) {
+                        // No key configured for this provider, try next provider in failover chain
+                        break
+                    }
+
+                    val openAiReq = toOpenAi(anthropic, targetProfile)
+                    activeModelUsed = targetProfile.model
+                    val res = callProvider(openAiReq, targetProfile, keyToUse)
+                    val code = res.first
+                    val body = res.second
+
+                    if (code in 200..299) {
+                        candidateKey?.let { keyPool?.reportSuccess(it.id, it.quotaScopeId, 0, 0) }
+                        upstream = res
+                        break@providerLoop
+                    }
+
+                    if (code == 401 || code == 403) {
+                        Log.w("FormatGateway", "Auth error on key ${candidateKey?.label ?: "active"}: $body")
+                        candidateKey?.let { keyPool?.reportKeyAuthFailure(it.id, body) }
+                        // Try next key
+                        continue
+                    }
+
+                    if (code == 429) {
+                        val isQuota = body.contains("quota", ignoreCase = true) ||
+                            body.contains("resource_exhausted", ignoreCase = true) ||
+                            body.contains("daily", ignoreCase = true)
+
+                        if (isQuota && candidateKey != null) {
+                            Log.w("FormatGateway", "Project quota exhausted on ${candidateKey.quotaScopeId}: $body")
+                            keyPool?.reportProjectQuotaExhausted(candidateKey.quotaScopeId, error = body)
+                            // Next iteration of while(true) skips all keys in this quota scope!
+                            continue
+                        } else {
+                            candidateKey?.let { keyPool?.reportRateLimit(it.id, 60_000L) }
+                            // If OpenRouter or free model, cascade free models
+                            if (targetProfile.kind == ProviderKind.LLM_ROUTER || targetProfile.model.endsWith(":free")) {
+                                for (fallbackModel in FREE_FALLBACK_CASCADE) {
+                                    if (fallbackModel == targetProfile.model) continue
+                                    Log.i("FormatGateway", "Cascading to fallback model: $fallbackModel")
+                                    val fallbackReq = toOpenAi(anthropic, targetProfile).apply { put("model", normalizeModel(fallbackModel)) }
+                                    val cascadeRes = callProvider(fallbackReq, targetProfile, keyToUse)
+                                    if (cascadeRes.first in 200..299) {
+                                        activeModelUsed = fallbackModel
+                                        candidateKey?.let { keyPool?.reportSuccess(it.id, it.quotaScopeId, 0, 0) }
+                                        upstream = cascadeRes
+                                        break@providerLoop
+                                    }
+                                }
+                            }
+                            continue
+                        }
+                    }
+
+                    // For other 5xx errors: try next key once or failover
+                    Log.w("FormatGateway", "Provider error $code: $body")
+                    break
                 }
             }
-            if (upstream.first !in 200..299) {
-                Log.w("FormatGateway", "Provider returned HTTP ${upstream.first}: ${providerError(upstream.second)}")
-                writeJson(output, upstream.first, errorJson("api_error", providerError(upstream.second)))
+
+            if (upstream == null || upstream.first !in 200..299) {
+                val errCode = upstream?.first ?: 502
+                val errBody = upstream?.second ?: "All configured providers and keys failed"
+                Log.w("FormatGateway", "All providers failed with code $errCode: ${providerError(errBody)}")
+                writeJson(output, errCode, errorJson("api_error", providerError(errBody)))
             } else {
-                val translated = fromOpenAi(JSONObject(upstream.second), anthropic.optString("model", profile.model))
+                val translated = fromOpenAi(JSONObject(upstream.second), anthropic.optString("model", activeModelUsed))
                 if (anthropic.optBoolean("stream", false)) writeStream(output, translated) else writeJson(output, 200, translated.toString())
             }
         }.onFailure { error ->
@@ -99,9 +163,9 @@ internal class LocalFormatGateway(
         }
     }
 
-    private fun toOpenAi(source: JSONObject): JSONObject {
+    private fun toOpenAi(source: JSONObject, targetProfile: ProviderProfile = profile): JSONObject {
         val target = JSONObject()
-            .put("model", normalizeModel(profile.model))
+            .put("model", normalizeModel(targetProfile.model))
             .put("stream", false)
             .put("max_tokens", source.optInt("max_tokens", 4096))
         if (source.has("temperature")) target.put("temperature", source.get("temperature"))
@@ -184,8 +248,12 @@ internal class LocalFormatGateway(
             .put("usage", JSONObject().put("input_tokens", usage.optInt("prompt_tokens")).put("output_tokens", usage.optInt("completion_tokens")))
     }
 
-    private fun callProvider(body: JSONObject): Pair<Int, String> {
-        val endpoint = profile.baseUrl.trimEnd('/') + "/chat/completions"
+    private fun callProvider(
+        body: JSONObject,
+        targetProfile: ProviderProfile = profile,
+        targetKey: String = apiKey
+    ): Pair<Int, String> {
+        val endpoint = targetProfile.baseUrl.trimEnd('/') + "/chat/completions"
         if (!com.jarves.mh.network.LocalNetwork.isPlainHttpAllowed(endpoint)) {
             return 400 to errorJson("invalid_request_error", "Plain http:// is only allowed for local network addresses")
         }
@@ -196,7 +264,9 @@ internal class LocalFormatGateway(
             connection.readTimeout = 180_000
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/json")
-            connection.setRequestProperty("Authorization", "Bearer $apiKey")
+            if (targetKey.isNotBlank() && targetKey != "no-key-required") {
+                connection.setRequestProperty("Authorization", "Bearer $targetKey")
+            }
             connection.outputStream.use { it.write(body.toString().toByteArray()) }
             val code = connection.responseCode
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream

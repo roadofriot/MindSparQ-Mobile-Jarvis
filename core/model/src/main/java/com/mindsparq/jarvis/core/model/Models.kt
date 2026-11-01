@@ -65,17 +65,52 @@ data class EvidenceRecord(
 )
 
 @Serializable
+enum class BillingTier {
+    PAID,
+    FREE,
+    UNVERIFIED
+}
+
+@Serializable
+enum class QuotaState {
+    AVAILABLE,
+    NEAR_LIMIT,
+    RATE_LIMITED,
+    QUOTA_EXHAUSTED,
+    CREDENTIAL_INVALID,
+    ACCESS_DENIED,
+    BILLING_BLOCKED,
+    PROVIDER_UNAVAILABLE,
+    UNKNOWN
+}
+
+@Serializable
+data class QuotaScopeDescriptor(
+    val id: String,
+    val providerId: String,
+    val accountLabel: String,
+    val state: QuotaState = QuotaState.AVAILABLE,
+    val exhaustedUntil: Long = 0L,
+    val lastError: String? = null
+)
+
+@Serializable
 data class KeyPoolEntry(
     val id: String,
     val providerId: String,
     val label: String,
     val secretRef: String,
+    val accountLabel: String = "Default Account",
+    val quotaScopeId: String = "default-project",
+    val billingTier: BillingTier = BillingTier.FREE,
     val state: String = "HEALTHY",
     val cooldownUntil: Long? = null,
     val priority: Int = 10,
     val requestsToday: Int = 0,
     val tokensToday: Int = 0,
-    val lastUsedAt: Long = 0L
+    val lastUsedAt: Long = 0L,
+    val lastError: String? = null,
+    val lastValidatedAt: Long = 0L
 )
 
 @Serializable

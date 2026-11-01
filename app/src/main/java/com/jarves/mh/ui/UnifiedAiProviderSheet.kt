@@ -97,6 +97,7 @@ fun UnifiedAiProviderSheet(
     onPing: () -> Unit,
     getSavedApiKeys: (ProviderKind) -> List<ApiKeyInfo>,
     onAddApiKey: (ProviderKind, String, String) -> List<ApiKeyInfo>,
+    onAddKeyDetailed: ((ProviderKind, String, String, String, String, String, Int) -> List<ApiKeyInfo>)? = null,
     onActivateApiKey: (ProviderKind, String) -> List<ApiKeyInfo>,
     onRemoveApiKey: (ProviderKind, String) -> List<ApiKeyInfo>,
     onDiscoverModels: suspend (ProviderProfile, String) -> ModelDiscoveryResult,
@@ -117,6 +118,9 @@ fun UnifiedAiProviderSheet(
     var providerDropdownExpanded by rememberSaveable { mutableStateOf(false) }
     var addKeyExpanded by rememberSaveable { mutableStateOf(false) }
     var newKeyName by rememberSaveable { mutableStateOf("") }
+    var newAccountLabel by rememberSaveable { mutableStateOf("") }
+    var newQuotaScopeId by rememberSaveable { mutableStateOf("") }
+    var newBillingTier by rememberSaveable { mutableStateOf(if (state.provider.kind == ProviderKind.GEMINI) "PAID" else "FREE") }
     var newApiKey by rememberSaveable { mutableStateOf("") }
     var newKeyVisible by rememberSaveable { mutableStateOf(false) }
     var isDiscoveringModels by remember { mutableStateOf(false) }
@@ -602,7 +606,7 @@ fun UnifiedAiProviderSheet(
             }
 
             // =========================================================================
-            // 4. MULTI-KEY POOL (GMAIL KEY ROTATION / AUTO-FAILOVER)
+            // 4. MULTI-KEY & MULTI-ACCOUNT POOL (QUOTA-AWARE HIERARCHICAL FAILOVER)
             // =========================================================================
             if (state.provider.kind != ProviderKind.OLLAMA) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -613,13 +617,13 @@ fun UnifiedAiProviderSheet(
                     ) {
                         Column {
                             Text(
-                                "API KEY POOL (${savedKeys.size} KEYS)",
+                                "MULTI-KEY & ACCOUNT POOL (${savedKeys.size} KEYS)",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Text(
-                                "Auto-failover on rate limits (HTTP 429) across your Gmail keys",
+                                "Quota-scope aware failover: Key → Project/Account → Provider",
                                 fontSize = 10.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                             )
@@ -632,35 +636,111 @@ fun UnifiedAiProviderSheet(
                     }
 
                     if (savedKeys.isNotEmpty()) {
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                        ) {
-                            Column {
-                                savedKeys.forEachIndexed { index, key ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable { onActivateApiKey(state.provider.kind, key.id) }
-                                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        Column(Modifier.weight(1f)) {
-                                            Text(key.name, fontWeight = FontWeight.Medium, fontSize = 13.sp)
-                                            Text(
-                                                if (key.isActive) "Active · Primary Key" else "Backup Key · Failover Ready",
-                                                fontSize = 10.5.sp,
-                                                color = if (key.isActive) PocketOrange else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
+                        val groupedByScope = remember(savedKeys) {
+                            savedKeys.groupBy { it.quotaScopeId.ifBlank { "default-project" } }
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            groupedByScope.forEach { (scopeId, keysInScope) ->
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+                                ) {
+                                    Column {
+                                        // Quota Scope Header
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    Icons.Default.Storage,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(13.dp),
+                                                    tint = PocketOrange,
+                                                )
+                                                Spacer(Modifier.width(6.dp))
+                                                Text(
+                                                    "SCOPE / PROJECT: $scopeId",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                )
+                                            }
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = if (keysInScope.any { it.state == "EXHAUSTED" }) MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
+                                                else Color(0xFF10B981).copy(alpha = 0.15f),
+                                            ) {
+                                                Text(
+                                                    if (keysInScope.any { it.state == "EXHAUSTED" }) "QUOTA EXHAUSTED" else "QUOTA AVAILABLE",
+                                                    fontSize = 8.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (keysInScope.any { it.state == "EXHAUSTED" }) MaterialTheme.colorScheme.error else Color(0xFF10B981),
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                                )
+                                            }
                                         }
-                                        if (key.isActive) {
-                                            Icon(Icons.Default.Check, null, tint = PocketOrange, modifier = Modifier.size(16.dp))
-                                        }
-                                        IconButton(onClick = { onRemoveApiKey(state.provider.kind, key.id) }) {
-                                            Icon(Icons.Default.Delete, "Remove key", modifier = Modifier.size(16.dp))
+
+                                        keysInScope.forEachIndexed { index, key ->
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable { onActivateApiKey(state.provider.kind, key.id) }
+                                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                Column(Modifier.weight(1f)) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(key.name, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+                                                        Spacer(Modifier.width(6.dp))
+                                                        Surface(
+                                                            shape = RoundedCornerShape(4.dp),
+                                                            color = if (key.billingTier == "PAID") Color(0xFF8B5CF6).copy(alpha = 0.15f) else Color(0xFF3B82F6).copy(alpha = 0.15f),
+                                                        ) {
+                                                            Text(
+                                                                key.billingTier,
+                                                                fontSize = 8.5.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = if (key.billingTier == "PAID") Color(0xFF8B5CF6) else Color(0xFF3B82F6),
+                                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                                            )
+                                                        }
+                                                    }
+                                                    Text(
+                                                        buildString {
+                                                            append("Account: ${key.accountLabel} · ")
+                                                            when (key.state) {
+                                                                "COOLING" -> append("Rate Limited (Cooling)")
+                                                                "EXHAUSTED" -> append("Project Quota Exhausted")
+                                                                "INVALID" -> append("Authentication Failed")
+                                                                else -> if (key.isActive) append("Active Primary") else append("Standby Ready")
+                                                            }
+                                                        },
+                                                        fontSize = 10.5.sp,
+                                                        color = when {
+                                                            key.state == "EXHAUSTED" || key.state == "INVALID" -> MaterialTheme.colorScheme.error
+                                                            key.state == "COOLING" -> PocketOrange
+                                                            key.isActive -> PocketOrange
+                                                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                                        },
+                                                    )
+                                                }
+                                                if (key.isActive) {
+                                                    Icon(Icons.Default.Check, null, tint = PocketOrange, modifier = Modifier.size(16.dp))
+                                                }
+                                                IconButton(onClick = { onRemoveApiKey(state.provider.kind, key.id) }) {
+                                                    Icon(Icons.Default.Delete, "Remove key", modifier = Modifier.size(16.dp))
+                                                }
+                                            }
+                                            if (index != keysInScope.lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                                         }
                                     }
-                                    if (index != savedKeys.lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                                 }
                             }
                         }
@@ -676,10 +756,49 @@ fun UnifiedAiProviderSheet(
                                 OutlinedTextField(
                                     value = newKeyName,
                                     onValueChange = { newKeyName = it },
-                                    label = { Text("Account Label (e.g. Gmail 1, Gmail 2, Work)") },
+                                    label = { Text("Key Label (e.g. Gemini Key 1, Work Key)") },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
                                 )
+                                OutlinedTextField(
+                                    value = newAccountLabel,
+                                    onValueChange = { newAccountLabel = it },
+                                    label = { Text("Account Label (e.g. Google Account A, Work Team)") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                OutlinedTextField(
+                                    value = newQuotaScopeId,
+                                    onValueChange = { newQuotaScopeId = it },
+                                    label = { Text("Cloud Project / Quota Scope ID (e.g. gcp-proj-1)") },
+                                    supportingText = { Text("Keys sharing this ID share quota. Distinct IDs provide independent capacity.") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    OutlinedButton(
+                                        onClick = { newBillingTier = "PAID" },
+                                        modifier = Modifier.weight(1f),
+                                        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                                            containerColor = if (newBillingTier == "PAID") PocketOrange.copy(alpha = 0.15f) else Color.Transparent,
+                                        ),
+                                    ) {
+                                        Text("Paid Tier", color = if (newBillingTier == "PAID") PocketOrange else MaterialTheme.colorScheme.onSurface)
+                                    }
+                                    OutlinedButton(
+                                        onClick = { newBillingTier = "FREE" },
+                                        modifier = Modifier.weight(1f),
+                                        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                                            containerColor = if (newBillingTier == "FREE") Color(0xFF10B981).copy(alpha = 0.15f) else Color.Transparent,
+                                        ),
+                                    ) {
+                                        Text("Free Tier", color = if (newBillingTier == "FREE") Color(0xFF10B981) else MaterialTheme.colorScheme.onSurface)
+                                    }
+                                }
                                 OutlinedTextField(
                                     value = newApiKey,
                                     onValueChange = { newApiKey = it },
@@ -696,8 +815,22 @@ fun UnifiedAiProviderSheet(
                                 )
                                 Button(
                                     onClick = {
-                                        onAddApiKey(state.provider.kind, newKeyName, newApiKey)
+                                        if (onAddKeyDetailed != null) {
+                                            onAddKeyDetailed(
+                                                state.provider.kind,
+                                                newKeyName.trim(),
+                                                newApiKey.trim(),
+                                                newAccountLabel.trim().ifBlank { "Account 1" },
+                                                newQuotaScopeId.trim().ifBlank { "project-1" },
+                                                newBillingTier,
+                                                10,
+                                            )
+                                        } else {
+                                            onAddApiKey(state.provider.kind, newKeyName, newApiKey)
+                                        }
                                         newKeyName = ""
+                                        newAccountLabel = ""
+                                        newQuotaScopeId = ""
                                         newApiKey = ""
                                         addKeyExpanded = false
                                     },

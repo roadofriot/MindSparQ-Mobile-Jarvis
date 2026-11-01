@@ -15,6 +15,7 @@ import com.jarves.mh.model.ProviderProfile
 import com.jarves.mh.model.RiskLevel
 import com.jarves.mh.model.RuntimeEvent
 import com.jarves.mh.model.ToolRequest
+import com.mindsparq.jarvis.ai.gateway.KeyPoolManager
 import java.io.File
 import java.io.RandomAccessFile
 import java.security.MessageDigest
@@ -70,6 +71,8 @@ internal object ProviderRuntimeErrorDetector {
 class ClaudeRuntimeBridge(
     private val context: Context,
     private val secretFor: (ProviderProfile) -> String?,
+    private val keyPoolManager: KeyPoolManager? = null,
+    private val failoverProfiles: (() -> List<ProviderProfile>)? = null,
 ) : RuntimeBridge {
     private val installer = RuntimeInstaller(context)
     private val eventBus = MutableSharedFlow<RuntimeEvent>(extraBufferCapacity = 64)
@@ -149,7 +152,12 @@ class ClaudeRuntimeBridge(
             formatGateway = if (provider.kind.protocol in setOf(
                     com.jarves.mh.model.ProviderProtocol.OPENAI_CHAT,
                     com.jarves.mh.model.ProviderProtocol.OPENAI_RESPONSES,
-                )) LocalFormatGateway(provider, effectiveSecret).start() else null
+                )) LocalFormatGateway(
+                    profile = provider,
+                    apiKey = effectiveSecret,
+                    keyPool = keyPoolManager,
+                    failoverProviders = failoverProfiles?.invoke() ?: emptyList(),
+                ).start() else null
             openRouterGateway = if (
                 provider.kind == ProviderKind.LLM_ROUTER && provider.openRouterProviders.isNotEmpty()
             ) OpenRouterRoutingGateway(provider, effectiveSecret).start() else null

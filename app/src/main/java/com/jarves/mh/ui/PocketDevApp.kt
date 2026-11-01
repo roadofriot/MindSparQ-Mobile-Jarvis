@@ -512,6 +512,7 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             onPing = viewModel::pingApi,
             getSavedApiKeys = viewModel::getSavedApiKeys,
             onAddApiKey = viewModel::addApiKey,
+            onAddKeyDetailed = viewModel::addApiKey,
             onActivateApiKey = viewModel::activateApiKey,
             onRemoveApiKey = viewModel::removeApiKey,
             onDiscoverModels = viewModel::discoverModels,
