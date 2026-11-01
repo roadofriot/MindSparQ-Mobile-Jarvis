@@ -472,6 +472,7 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             onSelectAgent = viewModel::selectAgent,
             onExecuteHandover = viewModel::handoverTask,
             onDismissHandover = viewModel::dismissHandover,
+            onToggleTheme = viewModel::toggleTheme,
         )
         else -> RootScreenHost(
             state = state,

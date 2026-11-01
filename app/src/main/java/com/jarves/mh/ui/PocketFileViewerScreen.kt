@@ -355,7 +355,7 @@ internal fun FileViewerScreen(
 
     if (file.conflict) {
         AlertDialog(
-            onDismissRequest = {},
+            onDismissRequest = onDismissConflict,
             title = { Text(stringResource(R.string.file_changed_title)) },
             text = { Text(stringResource(R.string.file_changed_description)) },
             confirmButton = { TextButton(onClick = onReload) { Text(stringResource(R.string.reload)) } },

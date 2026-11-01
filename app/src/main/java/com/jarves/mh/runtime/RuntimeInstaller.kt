@@ -52,7 +52,7 @@ internal fun isSupportedDshVersion(version: String): Boolean =
 
 enum class RuntimeInstallEvent { STAGE, COMMAND, OUTPUT, DOWNLOAD, COMMAND_COMPLETED, COMPLETED }
 
-private data class RuntimeBundle(
+internal data class RuntimeBundle(
     val label: String,
     val fileName: String,
     val sha256: String,
@@ -68,8 +68,8 @@ class RuntimeInstaller(private val context: Context) {
     // Read only for migration from Core bundles that embedded Claude Code.
     private val bundledClaudeMarker = File(rootfs, ".pocket-bundled-claude-version")
     private val rootfsMarker = File(rootfs, ".pocket-rootfs-version")
-    private val languageToolsMarker = File(rootfs, ".pocket-language-tools-version")
-    private val coreToolsMarker = File(rootfs, ".pocket-core-tools-version")
+    internal val languageToolsMarker = File(rootfs, ".pocket-language-tools-version")
+    internal val coreToolsMarker = File(rootfs, ".pocket-core-tools-version")
     private val systemUpgradeMarker = File(rootfs, ".pocket-system-upgrade-version")
     private val devStacksFile = File(rootfs, ".pocket-dev-stacks.json")
     private val dshMarker = File(rootfs, ".pocket-dsh-version")
@@ -77,9 +77,10 @@ class RuntimeInstaller(private val context: Context) {
     private val githubCliMarker = File(rootfs, ".pocket-github-cli-version")
     private val dshAndroidCompatibilityMarker = File(rootfs, ".pocket-dsh-android-compat-version")
     private val macosMetadataRepairMarker = File(rootfs, ".pocket-macos-metadata-repair")
+    internal val stackInstaller by lazy { RuntimeStackInstaller(this, context, rootfs, downloads, devStacksFile) }
 
     /** Resolves a user-visible installer label in the language picked inside the app. */
-    private fun str(@androidx.annotation.StringRes id: Int, vararg args: Any): String =
+    internal fun str(@androidx.annotation.StringRes id: Int, vararg args: Any): String =
         AppStrings.get(context, id, *args)
 
     fun isInstalled(): Boolean {
@@ -229,7 +230,7 @@ class RuntimeInstaller(private val context: Context) {
         missingStacks.forEachIndexed { index, stack ->
             val slice = 0.26f / maxOf(1, missingStacks.size)
             val from = 0.72f + index * slice
-            applyStack(proot, stack, from, from + slice, onProgress)
+            stackInstaller.applyStack(proot, stack, from, from + slice, onProgress)
         }
 
         when (agent) {
@@ -714,310 +715,20 @@ class RuntimeInstaller(private val context: Context) {
     suspend fun ensureStackInstalled(
         stack: DevStack,
         onProgress: suspend (RuntimeInstallProgress) -> Unit,
-    ) {
-        val runtime = installedRuntime()
-        // Android's installer also repairs executable bits, Gradle configuration,
-        // and compatibility links. Let it run when the bundle is already present;
-        // installAndroidToolchain avoids downloading complete artifacts again.
-        if (isStackInstalled(stack) && stack != DevStack.ANDROID) return
-        applyStack(runtime.proot, stack, 0.05f, 0.95f, onProgress)
-        onProgress(RuntimeInstallProgress(str(R.string.rt_install_stack_ready, stack.localizedLabel(context)), 1f))
-    }
+    ) = stackInstaller.ensureStackInstalled(stack, onProgress)
 
-    /**
-     * Removes an optional development stack without touching projects or the core
-     * Node.js/Git runtime. Package-backed stacks are purged through dpkg; bundled
-     * stacks remove only their dedicated SDK/language directories.
-     */
     suspend fun removeStack(
         stack: DevStack,
         onProgress: suspend (RuntimeInstallProgress) -> Unit,
-    ) {
-        require(stack != DevStack.WEB) { str(R.string.rt_install_web_not_removable) }
-        val runtime = installedRuntime()
-        if (!isStackInstalled(stack)) return
+    ) = stackInstaller.removeStack(stack, onProgress)
 
-        onProgress(RuntimeInstallProgress(str(R.string.rt_install_removing_stack, stack.localizedLabel(context)), 0.1f, indeterminate = true))
-        when (stack) {
-            DevStack.WEB -> Unit
-            DevStack.PYTHON -> removePythonStack()
-            DevStack.ANDROID -> removeAndroidStack()
-            DevStack.CPP -> aptRemove(
-                runtime.proot,
-                listOf("build-essential", "gcc", "g++", "make", "cmake", "gdb"),
-                0.45f,
-                onProgress,
-            )
-            DevStack.PHP -> {
-                aptRemove(
-                    runtime.proot,
-                    listOf("php-cli", "php-mbstring", "php-xml", "php-curl", "php-zip"),
-                    0.45f,
-                    onProgress,
-                )
-                removePath(File(rootfs, "usr/local/bin/composer"))
-                removePath(File(rootfs, "root/.cache/composer"))
-                removePath(File(rootfs, "root/.composer"))
-            }
-            DevStack.GOLANG -> {
-                aptRemove(runtime.proot, listOf("golang-go"), 0.45f, onProgress)
-            }
-            DevStack.RUST -> {
-                aptRemove(runtime.proot, listOf("rustc", "cargo"), 0.45f, onProgress)
-            }
-            DevStack.FLUTTER -> {
-                removePath(File(rootfs, "opt/flutter"))
-                removePath(File(rootfs, "usr/local/bin/flutter"))
-                removePath(File(rootfs, "usr/local/bin/dart"))
-            }
-        }
+    fun migrateLegacyToolMarkers() = stackInstaller.migrateLegacyToolMarkers()
 
-        writeDevStackState(readDevStackState().apply { put(stack.name, false) })
-        onProgress(RuntimeInstallProgress(str(R.string.rt_install_stack_removed, stack.localizedLabel(context)), 1f))
-    }
+    fun installedStacks(): Set<DevStack> = stackInstaller.installedStacks()
 
-    private fun removePythonStack() {
-        listOf(
-            ".pocket-python-tools-version",
-            "usr/bin/python3",
-            "usr/bin/python3.8",
-            "usr/bin/pip",
-            "usr/bin/pip3",
-            "usr/lib/aarch64-linux-gnu/libpython3.8.so.1",
-            "usr/lib/aarch64-linux-gnu/libpython3.8.so.1.0",
-            "usr/lib/python3",
-            "usr/lib/python3.8",
-            "usr/local/lib/python3.8",
-            "usr/share/python3",
-            "usr/share/python-wheels",
-            "root/.cache/pip",
-        ).forEach { removePath(File(rootfs, it)) }
-    }
+    fun isStackInstalled(stack: DevStack): Boolean = stackInstaller.isStackInstalled(stack)
 
-    private fun removeAndroidStack() {
-        listOf(
-            "root/android-sdk",
-            "root/maven",
-            "root/.pocket-android-tools-version",
-            "root/.gradle/caches",
-            "root/.gradle/daemon",
-            "root/.gradle/native",
-            "root/.gradle/notifications",
-            "root/.gradle/wrapper/dists",
-            "root/.gradle/init.d/pocketdev-android.gradle",
-            "opt/gradle",
-            "opt/jdk-17.0.20.1+1",
-            "usr/local/bin/jar",
-            "usr/local/bin/jarsigner",
-            "usr/local/bin/java",
-            "usr/local/bin/javac",
-            "usr/local/bin/javadoc",
-            "usr/local/bin/keytool",
-        ).forEach { removePath(File(rootfs, it)) }
-        removeAndroidGradleProperty()
-    }
-
-    private fun removeAndroidGradleProperty() {
-        val properties = File(rootfs, "root/.gradle/gradle.properties")
-        if (!properties.isFile) return
-        val remaining = properties.readLines().filterNot(::isManagedAndroidGradleProperty)
-        if (remaining.isEmpty()) {
-            properties.delete()
-        } else {
-            properties.writeText(remaining.joinToString("\n").trimEnd() + "\n")
-        }
-    }
-
-    private fun removePath(file: File) {
-        if (file.isDirectory && !java.nio.file.Files.isSymbolicLink(file.toPath())) {
-            check(file.deleteRecursively()) { "Could not remove ${file.name}" }
-        } else if (file.exists() || java.nio.file.Files.isSymbolicLink(file.toPath())) {
-            check(file.delete()) { "Could not remove ${file.name}" }
-        }
-    }
-
-    private suspend fun applyStack(
-        proot: File,
-        stack: DevStack,
-        from: Float,
-        to: Float,
-        onProgress: suspend (RuntimeInstallProgress) -> Unit,
-    ) {
-        var verified = true
-        when (stack) {
-            DevStack.WEB -> {
-                onProgress(RuntimeInstallProgress(str(R.string.rt_install_checking_node), from))
-                verifyGuest(proot, "node --version && npm --version", str(R.string.rt_install_verify_failed, "Node.js"))
-            }
-            DevStack.PYTHON -> {
-                installRuntimeOverlay(PYTHON_BUNDLE, str(R.string.rt_install_python), from, to, onProgress)
-                runCatching {
-                    verifyGuest(proot, "python3 --version && pip3 --version", str(R.string.rt_install_verify_failed, "Python"))
-                }.onFailure { error ->
-                    verified = false
-                    onProgress(
-                        RuntimeInstallProgress(
-                            str(R.string.rt_install_python_verify_failed, error.message?.take(120).orEmpty()),
-                            to,
-                        ),
-                    )
-                }
-            }
-            DevStack.ANDROID -> {
-                installAndroidToolchain(proot, from, to, onProgress)
-            }
-            DevStack.CPP -> {
-                aptInstall(
-                    proot,
-                    listOf("build-essential", "cmake", "gdb"),
-                    str(R.string.rt_install_cpp),
-                    from,
-                    onProgress,
-                )
-                verifyGuest(
-                    proot,
-                    "gcc --version && g++ --version && make --version && cmake --version",
-                    str(R.string.rt_install_verify_failed, "C/C++"),
-                )
-            }
-            DevStack.PHP -> {
-                aptInstall(
-                    proot,
-                    listOf("php-cli", "php-mbstring", "php-xml", "php-curl", "php-zip", "unzip"),
-                    str(R.string.rt_install_php),
-                    from,
-                    onProgress,
-                )
-                installComposer(proot, from, onProgress)
-                verifyGuest(proot, "php --version && composer --version", str(R.string.rt_install_verify_failed, "PHP"))
-            }
-            DevStack.GOLANG -> {
-                aptInstall(
-                    proot,
-                    listOf("golang-go"),
-                    "Installing Go (Golang) compiler and tools",
-                    from,
-                    onProgress,
-                )
-                verifyGuest(proot, "go version", str(R.string.rt_install_verify_failed, "Go"))
-            }
-            DevStack.RUST -> {
-                aptInstall(
-                    proot,
-                    listOf("rustc", "cargo", "build-essential"),
-                    "Installing Rust and Cargo toolchain",
-                    from,
-                    onProgress,
-                )
-                verifyGuest(proot, "rustc --version && cargo --version", str(R.string.rt_install_verify_failed, "Rust"))
-            }
-            DevStack.FLUTTER -> {
-                aptInstall(
-                    proot,
-                    listOf("git", "curl", "unzip", "xz-utils", "zip", "libglu1-mesa"),
-                    "Installing Flutter & Dart dependencies",
-                    from,
-                    onProgress,
-                )
-                installFlutterToolchain(proot, from, to, onProgress)
-            }
-        }
-        if (!verified) return
-        writeDevStackState(readDevStackState().apply { put(stack.name, true) })
-        onProgress(RuntimeInstallProgress(str(R.string.rt_install_stack_installed, stack.localizedLabel(context)), to))
-    }
-
-    /**
-     * Installs Composer into Ubuntu from the official latest-stable release,
-     * verified against getcomposer.org's published SHA-256 checksum.
-     */
-    private suspend fun installComposer(
-        proot: File,
-        fraction: Float,
-        onProgress: suspend (RuntimeInstallProgress) -> Unit,
-    ) {
-        val composer = File(rootfs, "usr/local/bin/composer")
-        if (composer.isFile) return
-        onProgress(RuntimeInstallProgress(str(R.string.rt_install_downloading_named, "Composer"), fraction))
-        downloads.mkdirs()
-        val staged = File(downloads, "composer.phar")
-        val checksum = fetchText("https://getcomposer.org/download/latest-stable/composer.phar.sha256sum")
-            .lineSequence()
-            .firstOrNull()
-            ?.trim()
-            ?.substringBefore(' ')
-            ?.takeIf { it.matches(Regex("[0-9a-fA-F]{64}")) }
-            ?: error("Composer checksum was not found")
-        downloadVerified(
-            "https://getcomposer.org/download/latest-stable/composer.phar",
-            staged,
-            checksum,
-        ) { _, _ -> }
-        composer.parentFile?.mkdirs()
-        if (composer.exists()) composer.delete()
-        // cacheDir and filesDir can live on different mounts: copy instead of rename.
-        staged.inputStream().use { input -> FileOutputStream(composer).use { input.copyTo(it) } }
-        staged.delete()
-        Os.chmod(composer.absolutePath, 0b111101101)
-        onProgress(RuntimeInstallProgress(str(R.string.rt_install_installing_named, "Composer"), fraction))
-    }
-
-    private suspend fun installFlutterToolchain(
-        proot: File,
-        from: Float,
-        to: Float,
-        onProgress: suspend (RuntimeInstallProgress) -> Unit,
-    ) {
-        val flutterBin = File(rootfs, "usr/local/bin/flutter")
-        val dartBin = File(rootfs, "usr/local/bin/dart")
-        if (flutterBin.exists() && dartBin.exists()) return
-        onProgress(RuntimeInstallProgress("Configuring Flutter SDK and Dart runtime...", from + (to - from) * 0.5f))
-        verifyGuest(
-            proot,
-            "if [ ! -d /opt/flutter ]; then git clone --depth 1 -b stable https://github.com/flutter/flutter.git /opt/flutter; fi && ln -sf /opt/flutter/bin/flutter /usr/local/bin/flutter && ln -sf /opt/flutter/bin/dart /usr/local/bin/dart",
-            str(R.string.rt_install_verify_failed, "Flutter / Dart"),
-        )
-    }
-
-    private suspend fun installAndroidToolchain(
-        proot: File,
-        from: Float,
-        to: Float,
-        onProgress: suspend (RuntimeInstallProgress) -> Unit,
-    ) {
-        val marker = File(rootfs, "root/.pocket-android-tools-version")
-        val androidHome = File(rootfs, "root/android-sdk")
-        val gradleHome = File(rootfs, "opt/gradle")
-        val localMaven = File(rootfs, "root/maven/localMvnRepository")
-        if (marker.readTextOrNull() != ANDROID_TOOLS_VERSION ||
-            !File(androidHome, "platforms/android-36/android.jar").isFile ||
-            !File(androidHome, "build-tools/35.0.0/aapt2").isFile ||
-            !File(gradleHome, "gradle-8.14.3/bin/gradle").isFile ||
-            !localMaven.isDirectory) {
-            installRuntimeOverlay(
-                ANDROID_BUNDLE,
-                str(R.string.rt_install_android_tools),
-                from,
-                to,
-                onProgress,
-            )
-            makeAndroidToolsExecutable(androidHome, gradleHome)
-            marker.parentFile?.mkdirs()
-            marker.writeText(ANDROID_TOOLS_VERSION)
-        }
-        // Keep this outside the download/install branch so app updates repair
-        // existing Android toolchains without downloading the bundles again.
-        writeAndroidGradleConfiguration(rootfs)
-
-        verifyGuest(
-            proot,
-            "java -version 2>&1 | grep -E '\"17\\.|version 17' && " +
-                "gradle --version && aapt2 version && test -f \"${'$'}ANDROID_HOME/platforms/android-36/android.jar\"",
-            str(R.string.rt_install_verify_failed, "Android SDK, Gradle, Java"),
-        )
-    }
-
-    private suspend fun installRuntimeOverlay(
+    internal suspend fun installRuntimeOverlay(
         bundle: RuntimeBundle,
         message: String,
         from: Float,
@@ -1025,9 +736,6 @@ class RuntimeInstaller(private val context: Context) {
         onProgress: suspend (RuntimeInstallProgress) -> Unit,
         forceEmbedded: Boolean = false,
     ) {
-        // Stack overlays honor the same offline/online flavor as the Core bundle:
-        // the offline APK ships every stack bundle inside its assets, while the
-        // online APK fetches each one from the release URL on demand.
         val archive = obtainRuntimeBundle(bundle, preferEmbedded = forceEmbedded || BuildConfig.OFFLINE_RUNTIME_BUNDLES, from, to * 0.8f + from * 0.2f, onProgress)
         onProgress(RuntimeInstallProgress(message, to * 0.8f + from * 0.2f, indeterminate = true))
         extractZstdTar(archive, rootfs)
@@ -1036,14 +744,7 @@ class RuntimeInstaller(private val context: Context) {
         onProgress(RuntimeInstallProgress(str(R.string.rt_install_bundle_tools_installed, bundle.label), to))
     }
 
-    /**
-     * Removes AppleDouble-style metadata files (`._*`) that some on-device
-     * tar builders and macOS tarballs embed alongside the real files. They
-     * are harmless to most tools, but Python's site module reads every
-     * `.pth` file in site-packages and crashes when one of them is a
-     * binary metadata blob.
-     */
-    private fun stripMacosMetadataArtifacts(root: File) {
+    internal fun stripMacosMetadataArtifacts(root: File) {
         if (!root.isDirectory) return
         val queue = ArrayDeque<File>()
         queue.add(root)
@@ -1118,172 +819,6 @@ class RuntimeInstaller(private val context: Context) {
         return destination
     }
 
-    private suspend fun installZipAsset(
-        url: String,
-        checksum: String,
-        archiveName: String,
-        destination: File,
-        message: String,
-        from: Float,
-        to: Float,
-        onProgress: suspend (RuntimeInstallProgress) -> Unit,
-    ) {
-        downloads.mkdirs()
-        val archive = File(downloads, archiveName)
-        downloadVerified(url, archive, checksum) { downloaded, total ->
-            val ratio = if (total > 0) downloaded.toFloat() / total else 0f
-            onProgress(RuntimeInstallProgress(message, from + ratio * (to - from), downloaded, total.takeIf { it > 0 }))
-        }
-        onProgress(RuntimeInstallProgress(str(R.string.rt_install_installing_named, archiveName.removeSuffix(".zip")), to, indeterminate = true))
-        val staging = File(destination.parentFile, "${destination.name}.installing")
-        staging.deleteRecursively()
-        staging.mkdirs()
-        extractZipArchive(archive, staging)
-        destination.deleteRecursively()
-        check(staging.renameTo(destination)) { "Could not activate ${destination.name}" }
-        archive.delete()
-    }
-
-    private fun extractZipArchive(archive: File, destination: File) {
-        ZipInputStream(BufferedInputStream(archive.inputStream())).use { zip ->
-            var entry = zip.nextEntry
-            while (entry != null) {
-                val name = entry.name.removePrefix("./").trimStart('/')
-                if (name.isNotBlank()) {
-                    val target = safeChild(destination, name)
-                    if (entry.isDirectory) {
-                        target.mkdirs()
-                    } else {
-                        target.parentFile?.mkdirs()
-                        FileOutputStream(target).use { output -> zip.copyTo(output) }
-                    }
-                }
-                zip.closeEntry()
-                entry = zip.nextEntry
-            }
-        }
-    }
-
-    private fun makeAndroidToolsExecutable(androidHome: File, gradleHome: File) {
-        val buildTools = File(androidHome, "build-tools/35.0.0")
-        listOf("aapt", "aapt2", "aidl", "apksigner", "d8", "dexdump", "split-select", "zipalign")
-            .map { File(buildTools, it) }
-            .plus(File(gradleHome, "gradle-8.14.3/bin/gradle"))
-            .filter(File::isFile)
-            .forEach { Os.chmod(it.absolutePath, 0b111101101) }
-    }
-
-    private fun writeAndroidGradleInitScript(runtimeRootfs: File) {
-        val script = File(runtimeRootfs, "root/.gradle/init.d/pocketdev-android.gradle")
-        script.parentFile?.mkdirs()
-        script.writeText(
-            """
-            def pocketMaven = uri('/root/maven/localMvnRepository')
-            beforeSettings { settings ->
-                settings.pluginManagement.repositories {
-                    maven { url = pocketMaven }
-                    google()
-                    mavenCentral()
-                    gradlePluginPortal()
-                }
-            }
-            settingsEvaluated { settings ->
-                settings.dependencyResolutionManagement.repositories {
-                    maven { url = pocketMaven }
-                }
-            }
-            gradle.beforeProject { project ->
-                project.extensions.extraProperties.set(
-                    'android.aapt2FromMavenOverride',
-                    '/root/android-sdk/build-tools/35.0.0/aapt2'
-                )
-                project.buildscript.repositories {
-                    maven { url = pocketMaven }
-                }
-            }
-            """.trimIndent() + "\n",
-        )
-    }
-
-    @Synchronized
-    private fun writeAndroidGradleConfiguration(runtimeRootfs: File) {
-        val aapt2 = File(runtimeRootfs, ANDROID_AAPT2_HOST_PATH)
-        if (!aapt2.isFile) return
-
-        writeAndroidGradleInitScript(runtimeRootfs)
-        val gradleDir = File(runtimeRootfs, "root/.gradle").apply { mkdirs() }
-        val properties = File(gradleDir, "gradle.properties")
-        val existingLines = properties.readTextOrNull()?.lineSequence()?.toList().orEmpty()
-        val managedLines = listOf(
-            "$ANDROID_AAPT2_PROPERTY=$ANDROID_AAPT2_GUEST_PATH",
-            "$GRADLE_JVMARGS_PROPERTY=-Xmx512m -XX:MaxMetaspaceSize=256m -Dfile.encoding=UTF-8",
-            "$GRADLE_WORKERS_PROPERTY=2",
-            "$GRADLE_PARALLEL_PROPERTY=false",
-            "$KOTLIN_EXECUTION_PROPERTY=in-process",
-        )
-        val updatedLines = existingLines.filterNot(::isManagedAndroidGradleProperty) + managedLines
-        if (existingLines == updatedLines) return
-
-        val temporary = File(gradleDir, "gradle.properties.pocketdev.tmp")
-        temporary.writeText(updatedLines.joinToString("\n").trimEnd() + "\n")
-        Os.rename(temporary.absolutePath, properties.absolutePath)
-    }
-
-    private fun isManagedAndroidGradleProperty(line: String): Boolean =
-        MANAGED_ANDROID_GRADLE_PROPERTIES.any { key ->
-            Regex("^\\s*${Regex.escape(key)}\\s*[:=].*$").matches(line)
-        }
-
-    /**
-     * One-time upgrade path from the old single-bundle layout: devices that already
-     * installed every tool keep all stacks without re-downloading anything.
-     */
-    fun migrateLegacyToolMarkers() {
-        if (!File(rootfs, "usr/bin/bash").isFile) return
-        if (languageToolsMarker.readTextOrNull() != LANGUAGE_TOOLS_VERSION) return
-        if (coreToolsMarker.readTextOrNull() != CORE_TOOLS_VERSION) coreToolsMarker.writeText(CORE_TOOLS_VERSION)
-        val state = readDevStackState()
-        DevStack.entries.forEach { stack -> if (!state.containsKey(stack.name)) state[stack.name] = true }
-        writeDevStackState(state)
-    }
-
-    fun installedStacks(): Set<DevStack> = readDevStackState()
-        .filterValues { it }
-        .keys
-        .mapNotNull { name -> runCatching { DevStack.valueOf(name) }.getOrNull() }
-        .filter(::isStackInstalled)
-        .toSet()
-
-    fun isStackInstalled(stack: DevStack): Boolean {
-        if (readDevStackState()[stack.name] != true) return false
-        if (stack != DevStack.ANDROID) return true
-        return File(rootfs, "root/.pocket-android-tools-version").readTextOrNull() == ANDROID_TOOLS_VERSION &&
-            File(rootfs, "root/android-sdk/platforms/android-36/android.jar").isFile &&
-            File(rootfs, "root/android-sdk/build-tools/35.0.0/aapt2").isFile &&
-            File(rootfs, "opt/gradle/gradle-8.14.3/bin/gradle").isFile &&
-            File(rootfs, "root/maven/localMvnRepository").let { it.isDirectory && !it.list().isNullOrEmpty() } &&
-            File(rootfs, "root/.gradle/init.d/pocketdev-android.gradle").isFile
-    }
-
-    private fun readDevStackState(): MutableMap<String, Boolean> {
-        if (!devStacksFile.isFile) return mutableMapOf()
-        return runCatching {
-            val obj = JSONObject(devStacksFile.readText())
-            mutableMapOf<String, Boolean>().apply {
-                DevStack.entries.forEach { stack ->
-                    if (obj.has(stack.name)) put(stack.name, obj.optBoolean(stack.name))
-                }
-            }
-        }.getOrDefault(mutableMapOf())
-    }
-
-    private fun writeDevStackState(state: Map<String, Boolean>) {
-        devStacksFile.parentFile?.mkdirs()
-        val obj = JSONObject()
-        state.forEach { (name, value) -> obj.put(name, value) }
-        devStacksFile.writeText(obj.toString())
-    }
-
     private suspend fun installNodeIfNeeded(
         proot: File,
         from: Float,
@@ -1332,7 +867,7 @@ class RuntimeInstaller(private val context: Context) {
         nodeArchive.delete()
     }
 
-    private suspend fun aptInstall(
+    internal suspend fun aptInstall(
         proot: File,
         packages: List<String>,
         message: String,
@@ -1397,7 +932,7 @@ class RuntimeInstaller(private val context: Context) {
         )
     }
 
-    private suspend fun aptRemove(
+    internal suspend fun aptRemove(
         proot: File,
         packages: List<String>,
         fraction: Float,
@@ -1509,7 +1044,7 @@ class RuntimeInstaller(private val context: Context) {
         .filter { it == '\t' || it.code >= 32 }
         .take(MAX_TERMINAL_LINE)
 
-    private suspend fun verifyGuest(proot: File, command: String, failureMessage: String) {
+    internal suspend fun verifyGuest(proot: File, command: String, failureMessage: String) {
         val verify = process(
             proot = proot,
             rootfs = rootfs,
@@ -1625,7 +1160,7 @@ class RuntimeInstaller(private val context: Context) {
         File(rootfs, guestWorkspacePath.removePrefix("/")).mkdirs()
         // Self-heal devices whose Android tools were installed by an older app
         // version before the global AAPT2 override was persisted.
-        writeAndroidGradleConfiguration(rootfs)
+        stackInstaller.writeAndroidGradleConfiguration(rootfs)
         ensureWorkspaceTrust(guestWorkspacePath)
         val bridge = File(context.filesDir, "runtime-bridge").apply { mkdirs() }
         val args = buildList {
@@ -1773,212 +1308,20 @@ printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decis
         File(rootfs, "etc/resolv.conf").writeText(servers.joinToString("\n") { "nameserver $it" } + "\n")
     }
 
-    private fun extractRootfs(archive: File, destination: File) {
-        val deferredLinks = mutableListOf<Pair<File, File>>()
-        TarArchiveInputStream(GzipCompressorInputStream(BufferedInputStream(archive.inputStream()))).use { tar ->
-            var entry: TarArchiveEntry? = tar.nextEntry
-            while (entry != null) {
-                val cleanName = entry.name.removePrefix("./")
-                val target = safeChild(destination, cleanName)
-                when {
-                    entry.isDirectory -> target.mkdirs()
-                    entry.isSymbolicLink -> {
-                        target.parentFile?.mkdirs()
-                        if (target.exists() || java.nio.file.Files.isSymbolicLink(target.toPath())) target.delete()
-                        Os.symlink(entry.linkName, target.absolutePath)
-                    }
-                    entry.isLink -> {
-                        target.parentFile?.mkdirs()
-                        val linkTarget = safeChild(destination, entry.linkName.removePrefix("./"))
-                        if (linkTarget.exists()) {
-                            linkTarget.inputStream().use { input -> FileOutputStream(target).use { input.copyTo(it) } }
-                        } else {
-                            deferredLinks += target to linkTarget
-                        }
-                    }
-                    entry.isFile -> {
-                        target.parentFile?.mkdirs()
-                        FileOutputStream(target).use { output -> tar.copyTo(output) }
-                        runCatching { Os.chmod(target.absolutePath, entry.mode and 0b111111111) }
-                    }
-                }
-                entry = tar.nextEntry
-            }
-        }
-        deferredLinks.forEach { (target, linkTarget) ->
-            require(linkTarget.isFile) { "Archive hard-link target is missing" }
-            target.parentFile?.mkdirs()
-            linkTarget.inputStream().use { input -> FileOutputStream(target).use { input.copyTo(it) } }
-            runCatching { Os.chmod(target.absolutePath, android.system.Os.stat(linkTarget.absolutePath).st_mode) }
-        }
-    }
-
-    private fun extractZstdTar(archive: File, destination: File) {
-        val deferredLinks = mutableListOf<Pair<File, File>>()
-        TarArchiveInputStream(
-            ZstdCompressorInputStream(BufferedInputStream(archive.inputStream())),
-        ).use { tar ->
-            var entry: TarArchiveEntry? = tar.nextEntry
-            while (entry != null) {
-                val cleanName = entry.name.removePrefix("./")
-                if (cleanName.isNotBlank()) {
-                    val target = safeChild(destination, cleanName)
-                    when {
-                        entry.isDirectory -> target.mkdirs()
-                        entry.isSymbolicLink -> {
-                            target.parentFile?.mkdirs()
-                            if (target.exists() || java.nio.file.Files.isSymbolicLink(target.toPath())) target.delete()
-                            Os.symlink(entry.linkName, target.absolutePath)
-                        }
-                        entry.isLink -> {
-                            target.parentFile?.mkdirs()
-                            val linkTarget = safeChild(destination, entry.linkName.removePrefix("./"))
-                            if (linkTarget.exists()) {
-                                linkTarget.inputStream().use { input -> FileOutputStream(target).use { input.copyTo(it) } }
-                            } else {
-                                deferredLinks += target to linkTarget
-                            }
-                        }
-                        entry.isFile -> {
-                            target.parentFile?.mkdirs()
-                            FileOutputStream(target).use { output -> tar.copyTo(output) }
-                            runCatching { Os.chmod(target.absolutePath, entry.mode and 0b111111111) }
-                        }
-                    }
-                }
-                entry = tar.nextEntry
-            }
-        }
-        deferredLinks.forEach { (target, linkTarget) ->
-            require(linkTarget.isFile) { "Archive hard-link target is missing" }
-            target.parentFile?.mkdirs()
-            linkTarget.inputStream().use { input -> FileOutputStream(target).use { input.copyTo(it) } }
-            runCatching { Os.chmod(target.absolutePath, android.system.Os.stat(linkTarget.absolutePath).st_mode) }
-        }
-    }
-
-    private fun extractNodeArchive(archive: File, destination: File) {
-        val deferredLinks = mutableListOf<Pair<File, File>>()
-        TarArchiveInputStream(GzipCompressorInputStream(BufferedInputStream(archive.inputStream()))).use { tar ->
-            var entry: TarArchiveEntry? = tar.nextEntry
-            while (entry != null) {
-                val relative = entry.name.removePrefix("./").substringAfter('/', "")
-                if (relative.isNotBlank()) {
-                    val target = safeChild(destination, relative)
-                    when {
-                        entry.isDirectory -> target.mkdirs()
-                        entry.isSymbolicLink -> {
-                            target.parentFile?.mkdirs()
-                            if (target.exists() || java.nio.file.Files.isSymbolicLink(target.toPath())) target.delete()
-                            Os.symlink(entry.linkName, target.absolutePath)
-                        }
-                        entry.isLink -> {
-                            val relativeLink = entry.linkName.removePrefix("./").substringAfter('/', "")
-                            val linkTarget = safeChild(destination, relativeLink)
-                            target.parentFile?.mkdirs()
-                            if (linkTarget.exists()) {
-                                linkTarget.inputStream().use { input -> FileOutputStream(target).use { input.copyTo(it) } }
-                            } else {
-                                deferredLinks += target to linkTarget
-                            }
-                        }
-                        entry.isFile -> {
-                            target.parentFile?.mkdirs()
-                            FileOutputStream(target).use { output -> tar.copyTo(output) }
-                            runCatching { Os.chmod(target.absolutePath, entry.mode and 0b111111111) }
-                        }
-                    }
-                }
-                entry = tar.nextEntry
-            }
-        }
-        deferredLinks.forEach { (target, linkTarget) ->
-            require(linkTarget.isFile) { "Node.js archive hard-link target is missing" }
-            target.parentFile?.mkdirs()
-            linkTarget.inputStream().use { input -> FileOutputStream(target).use { input.copyTo(it) } }
-            runCatching { Os.chmod(target.absolutePath, android.system.Os.stat(linkTarget.absolutePath).st_mode) }
-        }
-    }
-
-    private fun safeChild(root: File, relative: String): File {
-        require(relative.isNotBlank() && !relative.startsWith('/')) { "Unsafe archive path" }
-        val file = File(root, relative)
-        val rootPath = root.canonicalFile.toPath()
-        val parentPath = (file.parentFile ?: root).canonicalFile.toPath()
-        require(parentPath.startsWith(rootPath)) { "Archive path escapes runtime" }
-        return file
-    }
-
+    private fun extractRootfs(archive: File, destination: File) = RuntimeArchiveExtractor.extractRootfs(archive, destination)
+    private fun extractZstdTar(archive: File, destination: File) = RuntimeArchiveExtractor.extractZstdTar(archive, destination)
+    private fun extractNodeArchive(archive: File, destination: File) = RuntimeArchiveExtractor.extractNodeArchive(archive, destination)
+    private fun extractZipArchive(archive: File, destination: File) = RuntimeArchiveExtractor.extractZipArchive(archive, destination)
+    private fun safeChild(root: File, relative: String): File = RuntimeArchiveExtractor.safeChild(root, relative)
     private suspend fun downloadVerified(
         url: String,
         destination: File,
         expectedChecksum: String,
         algorithm: String = "SHA-256",
         onBytes: suspend (downloaded: Long, total: Long) -> Unit,
-    ) {
-        destination.parentFile?.mkdirs()
-        if (destination.isFile && digest(destination, algorithm).equals(expectedChecksum, ignoreCase = true)) {
-            onBytes(destination.length(), destination.length())
-            return
-        }
-        val temporary = File(destination.parentFile, "${destination.name}.part")
-        var existing = temporary.takeIf(File::isFile)?.length() ?: 0L
-        val connection = URL(url).openConnection() as HttpURLConnection
-        connection.connectTimeout = 20_000
-        connection.readTimeout = 120_000
-        connection.instanceFollowRedirects = true
-        if (existing > 0L) connection.setRequestProperty("Range", "bytes=$existing-")
-        check(connection.responseCode in 200..299) { str(R.string.rt_install_download_failed_http, connection.responseCode) }
-        val resumed = connection.responseCode == HttpURLConnection.HTTP_PARTIAL && existing > 0L
-        if (!resumed) {
-            temporary.delete()
-            existing = 0L
-        }
-        val total = connection.contentLengthLong.takeIf { it >= 0L }?.plus(existing) ?: -1L
-        connection.inputStream.use { input ->
-            FileOutputStream(temporary, resumed).use { output ->
-                val buffer = ByteArray(128 * 1024)
-                var downloaded = existing
-                while (true) {
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    output.write(buffer, 0, count)
-                    downloaded += count
-                    onBytes(downloaded, total)
-                }
-            }
-        }
-        connection.disconnect()
-        val actual = digest(temporary, algorithm)
-        if (!actual.equals(expectedChecksum, ignoreCase = true)) {
-            temporary.delete()
-            error("Downloaded file checksum did not match")
-        }
-        destination.delete()
-        check(temporary.renameTo(destination)) { "Could not finish download" }
-    }
-
-    private fun fetchText(url: String): String {
-        val connection = URL(url).openConnection() as HttpURLConnection
-        connection.connectTimeout = 15_000
-        connection.readTimeout = 30_000
-        connection.setRequestProperty("Accept", "application/json")
-        check(connection.responseCode in 200..299) { "Request failed with HTTP ${connection.responseCode}" }
-        return connection.inputStream.bufferedReader().use { it.readText() }.also { connection.disconnect() }
-    }
-
-    private fun digest(file: File, algorithm: String): String {
-        val digest = MessageDigest.getInstance(algorithm)
-        file.inputStream().use { input ->
-            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                digest.update(buffer, 0, count)
-            }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
-    }
+    ) = RuntimeArchiveExtractor.downloadVerified(url, destination, expectedChecksum, algorithm, onBytes)
+    private fun fetchText(url: String): String = RuntimeArchiveExtractor.fetchText(url)
+    private fun digest(file: File, algorithm: String): String = RuntimeArchiveExtractor.digest(file, algorithm)
 
     private fun File.readTextOrNull(): String? = runCatching { readText().trim() }.getOrNull()
 
@@ -1998,11 +1341,11 @@ printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decis
         private const val ROOTFS_URL = "https://cdimage.ubuntu.com/ubuntu-base/releases/20.04/release/$ROOTFS_FILE"
         private const val ROOTFS_SHA256 = "f9b999afb4c4b10193087ea8c11be36d688f19e609b05179b571f29357954b52"
         private const val NODE_VERSION = "v24.19.0"
-        private const val LANGUAGE_TOOLS_VERSION = "node-v24.19.0-python3-v1"
-        private const val CORE_TOOLS_VERSION = "core-bundle-2026.09.5"
+        internal const val LANGUAGE_TOOLS_VERSION = "node-v24.19.0-python3-v1"
+        internal const val CORE_TOOLS_VERSION = "core-bundle-2026.09.5"
         private const val LEGACY_CORE_TOOLS_VERSION = "core-bundle-2026.09.4"
         private const val SYSTEM_UPGRADE_VERSION = "ubuntu-maintenance-v1"
-        private const val ANDROID_TOOLS_VERSION = "sdk36-build-tools35-gradle8.14.3-maven-2026.09"
+        internal const val ANDROID_TOOLS_VERSION = "sdk36-build-tools35-gradle8.14.3-maven-2026.09"
         private const val ANDROID_ASSET_BASE = "https://appdevforall.org/dev-assets/debug"
         private const val ANDROID_SDK_URL = "$ANDROID_ASSET_BASE/android-sdk-arm64-v8a.zip"
         private const val ANDROID_SDK_SHA256 = "bfe5bc940a7ede14735817a40962256666ce4152b9f3135f34a4ab9bccb87c3f"
@@ -2042,13 +1385,13 @@ printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decis
             sha256 = "0f68e15630e8c0fc941afe3f61ab5a3eb4407b334018de6dbdabfa5eca627724",
             compressedBytes = 75_289_800L,
         )
-        private val PYTHON_BUNDLE = RuntimeBundle(
+        internal val PYTHON_BUNDLE = RuntimeBundle(
             label = "Python",
             fileName = "pocketdev-python-arm64-2026.09.2.tar.zst",
             sha256 = "6b3f56f7743fec142bc045db3ea561ee83fe89af87c2799165ef60351164ef85",
             compressedBytes = 55_419_626L,
         )
-        private val ANDROID_BUNDLE = RuntimeBundle(
+        internal val ANDROID_BUNDLE = RuntimeBundle(
             label = "Android",
             fileName = "pocketdev-android-arm64-2026.09.1.tar.zst",
             sha256 = "01bea058ebcb17416d1eb08c0211b3782da3228eb3c8348eb3719f2d61dd3ec6",

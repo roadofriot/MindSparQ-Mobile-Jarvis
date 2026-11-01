@@ -131,6 +131,9 @@ fun UnifiedAiProviderSheet(
     var llamaDownloading by remember { mutableStateOf(false) }
     var llamaProgress by remember { mutableFloatStateOf(0f) }
     var llamaDownloaded by rememberSaveable { mutableStateOf(isModelDownloaded("llama-3.2-3b-q4")) }
+    var qwenDownloading by remember { mutableStateOf(false) }
+    var qwenProgress by remember { mutableFloatStateOf(0f) }
+    var qwenDownloaded by rememberSaveable { mutableStateOf(isModelDownloaded("qwen2.5-coder-1.5b-q4")) }
 
     val savedKeys = remember(state.provider.kind, addKeyExpanded) {
         getSavedApiKeys(state.provider.kind)
@@ -1193,8 +1196,20 @@ fun UnifiedAiProviderSheet(
                                     },
                                 )
                             },
-                            onPause = {},
-                            onResume = {},
+                            onPause = {
+                                llamaDownloading = false
+                            },
+                            onResume = {
+                                llamaDownloading = true
+                                onDownloadOfflineModel(
+                                    "llama-3.2-3b-q4",
+                                    { prog -> llamaProgress = prog },
+                                    { success ->
+                                        llamaDownloading = false
+                                        if (success) llamaDownloaded = true
+                                    },
+                                )
+                            },
                             onDelete = {
                                 onDeleteOfflineModel("llama-3.2-3b-q4")
                                 llamaDownloaded = false
@@ -1214,13 +1229,40 @@ fun UnifiedAiProviderSheet(
                                 tag = "Fast & Lightweight",
                                 description = "Optimized for quick autocomplete, function scaffolding, and offline coding.",
                                 isRecommended = false,
-                                isDownloaded = false,
+                                isDownloaded = qwenDownloaded,
+                                isDownloading = qwenDownloading,
+                                progress = qwenProgress,
                             ),
                             isActive = state.provider.kind == ProviderKind.OLLAMA && state.provider.model.contains("qwen"),
-                            onDownload = {},
-                            onPause = {},
-                            onResume = {},
-                            onDelete = {},
+                            onDownload = {
+                                qwenDownloading = true
+                                onDownloadOfflineModel(
+                                    "qwen2.5-coder-1.5b-q4",
+                                    { prog -> qwenProgress = prog },
+                                    { success ->
+                                        qwenDownloading = false
+                                        if (success) qwenDownloaded = true
+                                    },
+                                )
+                            },
+                            onPause = {
+                                qwenDownloading = false
+                            },
+                            onResume = {
+                                qwenDownloading = true
+                                onDownloadOfflineModel(
+                                    "qwen2.5-coder-1.5b-q4",
+                                    { prog -> qwenProgress = prog },
+                                    { success ->
+                                        qwenDownloading = false
+                                        if (success) qwenDownloaded = true
+                                    },
+                                )
+                            },
+                            onDelete = {
+                                onDeleteOfflineModel("qwen2.5-coder-1.5b-q4")
+                                qwenDownloaded = false
+                            },
                             onSetActive = {
                                 onSelectProvider(ProviderKind.OLLAMA)
                                 onSelectModel("qwen2.5-coder:1.5b")

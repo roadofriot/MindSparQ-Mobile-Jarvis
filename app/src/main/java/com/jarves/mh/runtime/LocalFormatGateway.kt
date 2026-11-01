@@ -41,6 +41,9 @@ internal class LocalFormatGateway(
 ) : AutoCloseable {
     private val running = AtomicBoolean(true)
     private val server = ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"))
+    private val requestExecutor = java.util.concurrent.Executors.newFixedThreadPool(4) { runnable ->
+        Thread(runnable, "mh-format-worker").apply { isDaemon = true }
+    }
     val url: String = "http://127.0.0.1:${server.localPort}"
 
     fun start(): LocalFormatGateway = apply {
@@ -51,7 +54,17 @@ internal class LocalFormatGateway(
         while (running.get()) {
             runCatching { server.accept() }.getOrNull()?.let { socket ->
                 runCatching { socket.soTimeout = SOCKET_TIMEOUT_MS }
-                Thread({ socket.use(::handle) }, "mh-format-request").apply { isDaemon = true; start() }
+                if (!running.get()) {
+                    runCatching { socket.close() }
+                    return
+                }
+                try {
+                    requestExecutor.execute {
+                        socket.use(::handle)
+                    }
+                } catch (e: Exception) {
+                    runCatching { socket.close() }
+                }
             }
         }
     }
@@ -457,6 +470,7 @@ internal class LocalFormatGateway(
     override fun close() {
         running.set(false)
         runCatching { server.close() }
+        runCatching { requestExecutor.shutdownNow() }
     }
 
     private companion object {

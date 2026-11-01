@@ -361,6 +361,7 @@ internal fun WorkspaceScreen(
     onSelectAgent: (AgentKind) -> Unit = {},
     onExecuteHandover: () -> Unit = {},
     onDismissHandover: () -> Unit = {},
+    onToggleTheme: () -> Unit = {},
 ) {
     var agentMenuExpanded by remember { mutableStateOf(false) }
     var exportSelection by remember(state.activeProject?.id) { mutableStateOf(ExportSelection()) }
@@ -582,7 +583,11 @@ internal fun WorkspaceScreen(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.combinedClickable(
-                                onClick = {},
+                                onClick = {
+                                    val name = state.activeProject?.name.orEmpty()
+                                    val path = state.activeProject?.rootPath.orEmpty()
+                                    Toast.makeText(context, if (path.isNotBlank()) "$name\n$path" else name, Toast.LENGTH_SHORT).show()
+                                },
                                 onLongClick = {
                                     Toast.makeText(context, state.activeProject?.name.orEmpty(), Toast.LENGTH_LONG).show()
                                 },
@@ -870,7 +875,7 @@ internal fun WorkspaceScreen(
                     onInput = onTerminalInput,
                     onInterrupt = onTerminalInterrupt,
                     onClear = onTerminalClear,
-                    onToggleTheme = {},
+                    onToggleTheme = onToggleTheme,
                     themeMode = state.themeMode,
                     title = stringResource(R.string.workspace_project_terminal),
                     subtitle = "${state.projectTerminalCwd} · Ubuntu PRoot",
