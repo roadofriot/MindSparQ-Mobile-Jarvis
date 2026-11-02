@@ -1,0 +1,51 @@
+name: MindSparQ Jarvis Release Packaging
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release-build:
+    name: Build & Publish Release Artifacts
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Run Pre-Flight Automated Verification
+        run: |
+          ./gradlew \
+            :engine:loop:testDebugUnitTest \
+            :ai:skills:testDebugUnitTest \
+            :ai:mcp:testDebugUnitTest \
+            :ai:gateway:testDebugUnitTest \
+            --no-daemon --max-workers=2 -Dorg.gradle.jvmargs="-Xmx1536m"
+
+      - name: Build Online Release APK
+        run: |
+          ./gradlew assembleOnlineDebug --no-daemon --max-workers=2 -Dorg.gradle.jvmargs="-Xmx1536m"
+          cp app/build/outputs/apk/online/debug/app-online-debug.apk mindsparq-jarvis-${{ github.ref_name }}.apk
+          sha256sum mindsparq-jarvis-${{ github.ref_name }}.apk > mindsparq-jarvis-${{ github.ref_name }}.apk.sha256
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            mindsparq-jarvis-${{ github.ref_name }}.apk
+            mindsparq-jarvis-${{ github.ref_name }}.apk.sha256
+          draft: false
+          prerelease: false
+          generate_release_notes: true

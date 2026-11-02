@@ -1,0 +1,124 @@
+name: MindSparQ Jarvis CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-and-tests:
+    name: Lint, Static Analysis & Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Secret Leak Prevention Audit
+        run: |
+          echo "Scanning codebase for hardcoded API keys or plaintext secrets..."
+          # Check for high-entropy key patterns or test API keys
+          if git grep -E "(AIzaSy[0-9A-Za-z_-]{33}|sk-[0-9A-Za-z]{32,}|ghp_[0-9A-Za-z]{36})" -- ':!docs/' ':!*.md' ':!*.png'; then
+            echo "ERROR: Potential plaintext secret detected in git tree!"
+            exit 1
+          fi
+          echo "Secret audit PASSED. No leaked credentials found."
+
+      - name: Run Multi-Module Unit Tests
+        run: |
+          ./gradlew \
+            :engine:loop:testDebugUnitTest \
+            :ai:skills:testDebugUnitTest \
+            :ai:mcp:testDebugUnitTest \
+            :ai:gateway:testDebugUnitTest \
+            --no-daemon --max-workers=2 -Dorg.gradle.jvmargs="-Xmx1536m"
+
+      - name: Compile Android Debug Flavor
+        run: |
+          ./gradlew \
+            :core:database:compileDebugKotlin \
+            :app:compileOnlineDebugKotlin \
+            --no-daemon --max-workers=2 -Dorg.gradle.jvmargs="-Xmx1536m"
+
+  build-android-apk:
+    name: Build Reproducible Android APK
+    needs: quality-and-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Assemble Online Debug APK
+        run: |
+          ./gradlew assembleOnlineDebug --no-daemon --max-workers=2 -Dorg.gradle.jvmargs="-Xmx1536m"
+
+      - name: Generate Cryptographic Checksums
+        run: |
+          cd app/build/outputs/apk/online/debug/
+          sha256sum app-online-debug.apk > app-online-debug.apk.sha256
+          echo "SHA-256 Checksum:"
+          cat app-online-debug.apk.sha256
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mindsparq-jarvis-online-debug
+          path: |
+            app/build/outputs/apk/online/debug/app-online-debug.apk
+            app/build/outputs/apk/online/debug/app-online-debug.apk.sha256
+          retention-days: 14
+
+  macos-kmp-validation:
+    name: macOS / Apple Runner KMP Shared Validation
+    needs: quality-and-tests
+    runs-on: macos-14
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Validate KMP Shared Modules on Apple Silicon
+        run: |
+          ./gradlew \
+            :core:model:assemble \
+            :core:policy:assemble \
+            :ai:gateway:assemble \
+            :ai:skills:assemble \
+            :engine:loop:assemble \
+            --no-daemon --max-workers=2 -Dorg.gradle.jvmargs="-Xmx1536m"

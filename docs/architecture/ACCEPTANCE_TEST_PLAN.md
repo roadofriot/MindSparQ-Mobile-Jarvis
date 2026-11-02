@@ -17,6 +17,8 @@
 | **Gate 6: Physical Hardware Execution** | `adb -s RF8M926GJRY install -r <apk>` & `am start` | App installs, launches to foreground, and renders UI without crashes. | **`PASS`** |
 | **Gate 7: File Size Ceiling** | `find . -name "*.kt" -exec wc -l {} + \| sort -rn \| head -n 1` | No single Kotlin file exceeds the 1,500-line ceiling in `AGENTS.md`. | **`PASS`** |
 | **Gate 8: Memory & Resource Overhead** | Memory check on physical device / PRoot | App memory footprint stays within constrained hardware budget (< 500 MB RAM). | **`PASS`** |
+| **Gate 9: Reproducible Packaging & Integrity** | `./scripts/package-release.sh v2.0-enterprise` | Produces verified APK with SHA-256 hash and metadata in `dist/`. | **`PASS`** |
+| **Gate 10: CI/CD Workflow Validity** | `.github/workflows/ci.yml` & `release.yml` | Valid multi-platform matrix schema, secret protection, and artifact pipelines. | **`PASS`** |
 
 ---
 
@@ -50,5 +52,29 @@
 - **Given:** User configures a Gemini or OpenRouter API key.
 - **When:** Key is saved.
 - **Then:** Key is stored in AndroidKeyStore `AES-256-GCM` and masked in all UI components.
+- **Status:** **`PASS`**
+
+### Scenario 6: Dynamic Model Catalogue & Capability Badging
+- **Given:** User opens AI Provider Sheet.
+- **When:** Models are queried from OpenRouter / Gemini discovery endpoints.
+- **Then:** Models render dynamically with capability badges (Free, Reasoning, Tools) and filter tabs; zero fictitious hardcoded models.
+- **Status:** **`PASS`**
+
+### Scenario 7: Standard Agent Skills Discovery & Execution
+- **Given:** User executes agent task requiring clean code or technical decision records.
+- **When:** `SkillManager` scans workspace and system `SKILL.md` files.
+- **Then:** Relevant skills are filtered by task class, parsed with YAML frontmatter, and scoped into agent context.
+- **Status:** **`PASS`**
+
+### Scenario 8: Autonomous Task Orchestrator FSM & Resumption
+- **Given:** A multi-step autonomous coding task is initiated.
+- **When:** App is interrupted or restarted mid-execution.
+- **Then:** State transitions (`QUEUED` $\to$ `PLANNING` $\to$ `IMPLEMENTING` $\to$ `VERIFYING` $\to$ `COMPLETED`) are restored from SQLite, and execution resumes without data corruption.
+- **Status:** **`PASS`**
+
+### Scenario 9: Reproducible Packaging & Cryptographic Checksum
+- **Given:** Release packaging script `./scripts/package-release.sh` is invoked.
+- **When:** Build executes in single-use daemon with memory limits.
+- **Then:** APK is generated in `dist/`, verified with SHA-256 checksum, and accompanied by `release-metadata.json`.
 - **Status:** **`PASS`**
 

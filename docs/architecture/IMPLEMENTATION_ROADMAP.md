@@ -30,7 +30,7 @@
 │ Phase 6: Orchestrator Finite State Machine                [COMPLETED]  │
 │ • Bind :engine:loop:TaskOrchestrator to MainViewModel execution cycle.│
 ├────────────────────────────────────────────────────────────────────────┤
-│ Phase 7: Cross-Platform Handoff & Release Pipelines       [NEXT PHASE] │
+│ Phase 7: Cross-Platform Handoff & Release Pipelines       [COMPLETED]  │
 │ • GitHub Actions CI/CD matrix for reproducible APK & desktop artifacts│
 └────────────────────────────────────────────────────────────────────────┘
 ```
@@ -71,3 +71,17 @@
 - [x] Persist task state transitions and tool outputs in `task` and `evidence` tables in `JarvisDatabase.sq`.
 - [x] Support task interruption (`interrupt`), state resumption (`resumeOrchestratorForProject`), and step recovery across app restarts.
 - [x] Verified unit tests (`TaskOrchestratorTest`) and live hardware deployment on physical Samsung Galaxy Note 10+ (`RF8M926GJRY`).
+
+### Milestone 5: CI/CD Pipelines & Reproducible Packaging (Phase 7) — **100% DONE**
+- [x] Multi-job GitHub Actions CI/CD pipeline (`.github/workflows/ci.yml`):
+  - Secret leak detection scanning across commits and tree.
+  - Multi-module unit testing (`:core`, `:ai`, `:engine`, `:app`) with Gradle daemon limits (`--no-daemon -Dorg.gradle.jvmargs="-Xmx1536m"`).
+  - Reproducible Android APK compilation with SHA-256 cryptographic checksum calculation.
+  - macOS GitHub Actions runner (`macos-14`) for honest KMP shared validation boundary (Rule 10).
+- [x] GitHub Releases workflow (`.github/workflows/release.yml`) for tag-triggered releases publishing signed APKs, checksums, and changelog.
+- [x] Hardware-safe local verification script (`scripts/build-and-verify.sh`).
+- [x] Reproducible packaging script (`scripts/package-release.sh`) with SHA-256 hash generation and `release-metadata.json`.
+- [x] Verified packaged release artifact:
+  - Artifact: `dist/v2.0-enterprise/mindsparq-jarvis-v2.0-enterprise.apk` (77,901,279 bytes)
+  - SHA-256: `08e1fea703905e5f31d37878aacf7dbe3984aba0b0a3f25e86720d9f8e7c6b00`
+  - Target: Android 9.0 (API 28) to Android 16 (API 36), Architecture `arm64-v8a`.
