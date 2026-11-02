@@ -130,7 +130,7 @@ class JarvisDatabaseBridge(private val context: Context) {
                         id = chat.id,
                         project_id = projectId,
                         title = chat.title,
-                        agent = "claude-code",
+                        agent = "opencode",
                         mode = "code",
                         created_at = chat.createdAtMillis,
                         updated_at = chat.updatedAtMillis,
@@ -189,15 +189,21 @@ class JarvisDatabaseBridge(private val context: Context) {
                         id = chatId,
                         project_id = projectId,
                         title = "Chat",
-                        agent = "claude-code",
+                        agent = "opencode",
                         mode = "code",
                         created_at = now,
                         updated_at = now,
                     )
                 }
 
-                // 3. Atomically replace messages for this chat
-                queries.deleteMessagesForChat(chatId)
+                // 3. Incremental delta persistence for messages (avoids full table wipe)
+                val existingIds = queries.selectMessageIdsForChat(chatId).executeAsList().toSet()
+                val incomingIds = messages.map { it.id }.toSet()
+                val toDelete = existingIds - incomingIds
+                toDelete.forEach { deletedId ->
+                    queries.deleteMessageById(deletedId)
+                }
+
                 messages.forEach { m ->
                     val contentJson = JSONObject().apply {
                         put("text", m.text)

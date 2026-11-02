@@ -38,6 +38,8 @@ import com.jarves.mh.model.Project
 import com.jarves.mh.model.ProjectKind
 import com.jarves.mh.model.ProjectType
 import com.jarves.mh.model.AndroidTemplate
+import com.mindsparq.jarvis.core.policy.PolicyAction
+import com.mindsparq.jarvis.core.policy.PolicyEngine
 import com.jarves.mh.model.ProjectChat
 import com.jarves.mh.model.ProviderKind
 import com.jarves.mh.model.ProviderProfile
@@ -283,10 +285,43 @@ class TerminalDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
             }
             return
         }
-        if (isDestructiveTerminalCommand(normalized)) {
-            _state.update { it.copy(pendingTerminalCommand = normalized) }
-        } else {
-            runProjectTerminalCommand(normalized)
+
+        val activeProject = _state.value.activeProject
+        val workspaceRoot = activeProject?.let { projectGuestRoot(it) }
+
+        // Enterprise PolicyEngine screening
+        val decision = PolicyEngine.evaluateTerminalCommand(normalized, workspaceRoot)
+        when (decision.action) {
+            PolicyAction.DENY -> {
+                if (activeProject != null) {
+                    val existingLines = _state.value.projectTerminalLines
+                    val deniedLine = TerminalOutputLine(
+                        command = normalized,
+                        output = "[Security Policy Blocked]: ${decision.reason}",
+                        exitCode = 126,
+                    )
+                    val updatedLines = (existingLines + deniedLine).takeLast(MAX_PROJECT_TERMINAL_HISTORY)
+                    saveProjectTerminal(activeProject.id, _state.value.projectTerminalCwd, updatedLines)
+                    _state.update {
+                        it.copy(
+                            projectTerminalLines = updatedLines,
+                            toastMessage = "[Security Blocked]: ${decision.reason}"
+                        )
+                    }
+                } else {
+                    _state.update {
+                        it.copy(toastMessage = "[Security Blocked]: ${decision.reason}")
+                    }
+                }
+                return
+            }
+            PolicyAction.ASK -> {
+                _state.update { it.copy(pendingTerminalCommand = normalized) }
+                return
+            }
+            PolicyAction.ALLOW -> {
+                runProjectTerminalCommand(normalized)
+            }
         }
     }
 
@@ -660,11 +695,7 @@ class TerminalDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
     }
 
     private fun isDestructiveTerminalCommand(command: String): Boolean {
-        val normalized = command.lowercase().replace(Regex("\\s+"), " ")
-        return listOf(
-            "rm -rf", "rm -fr", "git reset --hard", "git clean -f", "git push --force",
-            "mkfs", "dd if=", "chmod -r 777", "shutdown", "reboot", ":(){", "kill \$(pgrep", "pkill -f",
-        ).any(normalized::contains) || Regex("(curl|wget).*(\\||>)\\s*(sh|bash)").containsMatchIn(normalized)
+        return PolicyEngine.evaluateTerminalCommand(command).action != PolicyAction.ALLOW
     }
 
     private fun detectPreviewUrl(output: String): String? {

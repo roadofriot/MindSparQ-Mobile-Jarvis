@@ -63,6 +63,7 @@ import com.jarves.mh.ui.delegate.AgentDelegate
 import com.jarves.mh.ui.delegate.AndroidBuildDelegate
 import com.jarves.mh.ui.delegate.ChatDelegate
 import com.jarves.mh.ui.delegate.ProjectDelegate
+import com.jarves.mh.ui.delegate.ProjectGitDelegate
 import com.jarves.mh.ui.delegate.TerminalDelegate
 import com.jarves.mh.ui.delegate.WorkspaceDelegate
 import com.jarves.mh.update.AppUpdateInfo
@@ -247,6 +248,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val androidDelegate: AndroidBuildDelegate = AndroidBuildDelegate(this)
     val agentDelegate: AgentDelegate = AgentDelegate(this)
     val projectDelegate: ProjectDelegate = ProjectDelegate(this)
+    val gitDelegate: ProjectGitDelegate = ProjectGitDelegate(this)
     val workspaceDelegate: WorkspaceDelegate = WorkspaceDelegate(this)
 
     init {

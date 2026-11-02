@@ -48,6 +48,7 @@ abstract class BaseViewModelDelegate(internal val vm: MainViewModel) {
     internal val androidDelegate: AndroidBuildDelegate get() = vm.androidDelegate
     internal val agentDelegate: AgentDelegate get() = vm.agentDelegate
     internal val projectDelegate: ProjectDelegate get() = vm.projectDelegate
+    internal val gitDelegate: ProjectGitDelegate get() = vm.gitDelegate
     internal val workspaceDelegate: WorkspaceDelegate get() = vm.workspaceDelegate
     internal val chatDelegate: ChatDelegate get() = vm.chatDelegate
 

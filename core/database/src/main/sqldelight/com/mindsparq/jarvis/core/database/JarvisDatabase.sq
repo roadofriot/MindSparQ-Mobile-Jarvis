@@ -192,6 +192,34 @@ CREATE TABLE audit_event (
     detail_json TEXT
 );
 
+-- Indexes for Relational Queries, Sorting, and Cascading Delete Performance
+CREATE INDEX IF NOT EXISTS idx_chat_project_id ON chat(project_id);
+CREATE INDEX IF NOT EXISTS idx_chat_updated_at ON chat(updated_at);
+
+CREATE INDEX IF NOT EXISTS idx_message_chat_id ON message(chat_id);
+CREATE INDEX IF NOT EXISTS idx_message_created_at ON message(created_at);
+
+CREATE INDEX IF NOT EXISTS idx_task_project_id ON task(project_id);
+CREATE INDEX IF NOT EXISTS idx_task_chat_id ON task(chat_id);
+CREATE INDEX IF NOT EXISTS idx_task_started_at ON task(started_at);
+
+CREATE INDEX IF NOT EXISTS idx_evidence_task_id ON evidence(task_id);
+
+CREATE INDEX IF NOT EXISTS idx_checkpoint_project_id ON checkpoint(project_id);
+CREATE INDEX IF NOT EXISTS idx_checkpoint_task_id ON checkpoint(task_id);
+
+CREATE INDEX IF NOT EXISTS idx_api_key_provider_id ON api_key(provider_id);
+
+CREATE INDEX IF NOT EXISTS idx_model_provider_id ON model(provider_id);
+
+CREATE INDEX IF NOT EXISTS idx_mcp_server_project_id ON mcp_server(project_id);
+
+CREATE INDEX IF NOT EXISTS idx_memory_item_project_id ON memory_item(project_id);
+
+CREATE INDEX IF NOT EXISTS idx_policy_rule_project_id ON policy_rule(project_id);
+
+CREATE INDEX IF NOT EXISTS idx_audit_event_ts ON audit_event(ts);
+
 -- Queries: Project
 selectAllProjects:
 SELECT * FROM project WHERE archived = 0 AND deleted_at IS NULL ORDER BY updated_at DESC;
@@ -224,6 +252,9 @@ DELETE FROM chat WHERE project_id = ?;
 selectMessagesForChat:
 SELECT * FROM message WHERE chat_id = ? ORDER BY created_at ASC;
 
+selectMessageIdsForChat:
+SELECT id FROM message WHERE chat_id = ?;
+
 insertMessage:
 INSERT INTO message (id, chat_id, role, content_json, model_ref, tokens_in, tokens_out, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?);
@@ -231,6 +262,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 insertOrReplaceMessage:
 INSERT OR REPLACE INTO message (id, chat_id, role, content_json, model_ref, tokens_in, tokens_out, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+deleteMessageById:
+DELETE FROM message WHERE id = ?;
 
 deleteMessagesForChat:
 DELETE FROM message WHERE chat_id = ?;
