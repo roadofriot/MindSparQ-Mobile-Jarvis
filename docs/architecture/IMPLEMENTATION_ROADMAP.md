@@ -48,19 +48,23 @@
 - [x] Eliminate `"null null"` tool-call bubbles and filter ghost records.
 - [x] Verify on physical Samsung Galaxy Note 10+ (`RF8M926GJRY`).
 
-### Milestone 2: Model Gateway & Dynamic Catalogue (Phase 4)
-- [ ] Connect `ModelDiscoveryService.refresh()` to `UnifiedAiProviderSheet.kt`.
-- [ ] Dynamically populate OpenRouter and Gemini model dropdowns from runtime metadata.
-- [ ] Implement automated health check ping for newly entered API keys.
+### Milestone 2: Model Gateway & Dynamic Catalogue (Phase 4) — **100% DONE**
+- [x] Connect `ModelDiscoveryService` and `ModelRegistry` to `UnifiedAiProviderSheet.kt`.
+- [x] Dynamically populate OpenRouter, Gemini, Ollama, and NIM models from runtime metadata and cache.
+- [x] Eliminate hardcoded/fictitious model lists, supporting live discovery and capability filtering (All, Free Tier, Tools, Reasoning).
+- [x] Relational model catalogue persistence in SQLDelight `model` table via `JarvisDatabaseBridge`.
 
-### Milestone 3: Skills Ecosystem & MCP Integration (Phase 5)
-- [ ] Structure standard skills folders under `skills/` with `SKILL.md` metadata:
-  - `product/product-discovery`
-  - `architecture/repository-audit`
-  - `architecture/technical-decision-records`
-  - `implementation/clean-code-and-refactoring`
-  - `quality/automated-testing`
-- [ ] Implement MCP task profiles (`coding`, `testing`, `research`, `database`).
+### Milestone 3: Skills Ecosystem & MCP Integration (Phase 5) — **100% DONE**
+- [x] Structure standard skills folders under `skills/` with `SKILL.md` metadata:
+  - `technical-decision-records`
+  - `clean-code-and-refactoring`
+  - `automated-testing`
+  - `threat-modeling`
+  - `production-readiness`
+  - plus 17 existing canonical skills (22 total).
+- [x] Upgrade `SkillManager.kt` with multi-directory discovery (workspace, `~/.jarvis/skills`, bundled), recursive scanning, and task-class filtering.
+- [x] Implement scoped MCP task profiles (`CODING`, `TESTING`, `DESIGN`, `RESEARCH`, `DATABASE`, `ALL`) in `McpConfigExporter.kt` to enforce least-privilege tool execution.
+- [x] Verified unit tests and live hardware deployment on physical Samsung Galaxy Note 10+ (`RF8M926GJRY`).
 
 ### Milestone 4: Autonomous State Graph (Phase 6)
 - [ ] Drive agent execution via `TaskOrchestrator` state machine (`QUEUED` $\to$ `COMPLETED`).
