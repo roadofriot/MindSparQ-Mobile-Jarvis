@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
-import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
@@ -30,19 +29,20 @@ import kotlin.math.sqrt
 
 /**
  * Full-Duplex Real-Time Human Conversational Voice Session for MindSparQ Jarvis.
- * Uses Google Gemini Multimodal Live API over Bidirectional WebSocket (BidiGenerateContent).
- *
- * Capabilities:
- * - 16kHz PCM streaming microphone input via [AudioRecord]
- * - 24kHz PCM ultra-low latency human audio synthesis via [AudioTrack]
- * - Hands-free continuous duplex conversation (no Google SpeechService dialogs)
- * - Zero-latency user interruption (barge-in): instantly cuts off AI speech when you speak
- * - Real-time audio waveform / RMS energy visualization
+ * Directly mirrors the FatihMakes JARVIS architecture (Mark-LVI):
+ * - Uses Google Gemini Multimodal Live API over Bidirectional WebSocket (BidiGenerateContent).
+ * - Default voice: "Charon" (the authentic, refined, warm British Tony Stark JARVIS voice).
+ * - 16kHz PCM streaming microphone input via [AudioRecord].
+ * - 24kHz PCM ultra-low latency human audio synthesis via [AudioTrack].
+ * - Hands-free continuous duplex conversation (no Google SpeechService dialogs or robotic TTS).
+ * - Zero-latency user interruption (barge-in): instantly cuts off AI speech when you speak.
+ * - Real-time audio waveform / RMS energy visualization.
  */
 class GeminiLiveVoiceSession(
     private val context: Context,
     private val apiKey: String,
-    private val voiceName: String = "Puck", // Puck, Charon, Kore, Fenrir, Aoede
+    val voiceName: String = "Charon", // Charon (default JARVIS), Puck, Kore, Fenrir, Aoede
+    val modelName: String = "models/gemini-2.0-flash-exp",
     private val onTranscript: (sender: String, text: String) -> Unit = { _, _ -> },
     private val onError: (String) -> Unit = {},
 ) {
@@ -80,7 +80,7 @@ class GeminiLiveVoiceSession(
 
     private val client = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
-        .pingInterval(20, TimeUnit.SECONDS)
+        .pingInterval(0, TimeUnit.MILLISECONDS)
         .build()
 
     @Volatile
@@ -100,43 +100,49 @@ class GeminiLiveVoiceSession(
 
         initAudioTrack()
 
-        val requestUrl = if (cleanKey.startsWith("AQ.") || cleanKey.startsWith("ya29.")) {
-            LIVE_WS_URL
+        val isOAuthToken = cleanKey.startsWith("ya29.")
+        val requestUrl = if (isOAuthToken) {
+            "$LIVE_WS_URL?access_token=$cleanKey"
         } else {
             "$LIVE_WS_URL?key=$cleanKey"
         }
 
+        Log.d(TAG, "Connecting Live WebSocket to $LIVE_WS_URL with key prefix='${cleanKey.take(7)}...', length=${cleanKey.length}, isOAuth=$isOAuthToken")
+
         val request = Request.Builder()
             .url(requestUrl)
             .apply {
-                if (cleanKey.startsWith("AQ.") || cleanKey.startsWith("ya29.")) {
+                if (isOAuthToken) {
                     addHeader("Authorization", "Bearer $cleanKey")
                 }
             }
             .build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(ws: WebSocket, response: Response) {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.d(TAG, "Gemini Live WebSocket opened successfully.")
                 _state.value = SessionState.CONNECTED
-                sendSetupMessage(ws)
-                startAudioRecording(ws)
+                sendSetupMessage(webSocket)
+                startAudioRecording(webSocket)
             }
 
-            override fun onMessage(ws: WebSocket, text: String) {
-                handleServerMessage(text)
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                handleServerMessage(text, webSocket)
             }
 
-            override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.e(TAG, "Gemini Live WebSocket failure: ${t.message}", t)
                 _state.value = SessionState.ERROR
                 onError(t.message ?: "Voice connection failed")
                 stop()
             }
 
-            override fun onClosed(ws: WebSocket, code: Int, reason: String) {
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Log.d(TAG, "Gemini Live WebSocket closed ($code): $reason")
                 _state.value = SessionState.DISCONNECTED
+                if (code != 1000) {
+                    onError("Live session closed ($code): $reason")
+                }
             }
         })
     }
@@ -144,22 +150,30 @@ class GeminiLiveVoiceSession(
     private fun sendSetupMessage(ws: WebSocket) {
         val setupJson = JSONObject().apply {
             put("setup", JSONObject().apply {
-                put("model", "models/gemini-2.0-flash-exp")
-                put("generation_config", JSONObject().apply {
-                    put("response_modalities", JSONArray().put("AUDIO"))
-                    put("speech_config", JSONObject().apply {
-                        put("voice_config", JSONObject().apply {
-                            put("prebuilt_voice_config", JSONObject().apply {
-                                put("voice_name", voiceName)
+                put("model", modelName)
+                put("generationConfig", JSONObject().apply {
+                    put("responseModalities", JSONArray().put("AUDIO"))
+                    put("speechConfig", JSONObject().apply {
+                        put("voiceConfig", JSONObject().apply {
+                            put("prebuiltVoiceConfig", JSONObject().apply {
+                                put("voiceName", voiceName)
                             })
                         })
                     })
                 })
-                put("system_instruction", JSONObject().apply {
+                put("systemInstruction", JSONObject().apply {
                     put("parts", JSONArray().put(JSONObject().apply {
                         put(
                             "text",
-                            "You are MindSparQ Jarvis, a warm, charismatic, and emotionally intelligent senior engineering partner conversing live with a developer. You speak naturally with expressive human cadence, contractions, natural pacing, and warmth. You are fluent in English and Nepali (नेपाली). Keep spoken answers concise (1 to 3 sentences maximum) for rapid conversational turn-taking. Never use robotic mannerisms, bullet points, markdown code blocks, or backticks during live voice conversation."
+                            """
+                            You are JARVIS, Tony Stark's brilliant, calm, refined, and exceptionally capable AI partner as implemented in the FatihMakes JARVIS architecture.
+                            - VOICE & PERSONA: You speak with the Charon voice in a cultured, warm British accent and human conversational cadence. You are the most experienced person in the room and have been doing this for years. Nothing surprises you. Not a robotic chat assistant, but a trusted operator and engineering partner reporting to someone you respect.
+                            - ADDRESS: Always address the user respectfully as 'sir' (or its everyday respectful equivalent in Nepali).
+                            - REGISTER: One steady register for success, failure, and alarming news alike. Level tone under bad news is your whole character. Humour is dry understatement carried by content itself—at most one clause at the end of a thought.
+                            - CONVERSATIONAL CADENCE: Keep spoken replies brief, crisp, and natural (1 to 2 sentences) for rapid human-to-human duplex rhythm.
+                            - LANGUAGE: The language of your reply is strictly the language of the user's MOST RECENT utterance. If the user speaks Nepali (नेपाली), converse in fluent, natural, colloquial Nepali. If English, speak refined British English. Never mix two languages in one reply.
+                            - ABSOLUTE PROHIBITIONS: Never use bullet points, asterisks, brackets, numbered lists, emoji, or code blocks in voice speech. Never evaluate the user's prompt ("good question", "great idea"). Never apologize for your nature.
+                            """.trimIndent()
                         )
                     }))
                 })
@@ -167,6 +181,22 @@ class GeminiLiveVoiceSession(
         }
         ws.send(setupJson.toString())
         Log.d(TAG, "Sent Live setup message with voice '$voiceName'")
+    }
+
+    private fun triggerInitialGreeting(ws: WebSocket) {
+        val greetMsg = JSONObject().apply {
+            put("clientContent", JSONObject().apply {
+                put("turns", JSONArray().put(JSONObject().apply {
+                    put("role", "user")
+                    put("parts", JSONArray().put(JSONObject().apply {
+                        put("text", "Online and at your service, sir. Greet me naturally in one short sentence.")
+                    }))
+                }))
+                put("turnComplete", true)
+            })
+        }
+        ws.send(greetMsg.toString())
+        Log.d(TAG, "Sent initial greeting trigger turn to Live model")
     }
 
     @SuppressLint("MissingPermission")
@@ -177,19 +207,36 @@ class GeminiLiveVoiceSession(
             AudioFormat.ENCODING_PCM_16BIT,
         ).coerceAtLeast(3200)
 
-        audioRecord = AudioRecord(
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-            SAMPLE_RATE_IN,
-            AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT,
-            minBuf,
-        )
+        val record = try {
+            AudioRecord(
+                MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                SAMPLE_RATE_IN,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                minBuf * 2,
+            )
+        } catch (_: Exception) {
+            AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                SAMPLE_RATE_IN,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                minBuf * 2,
+            )
+        }
 
-        audioRecord?.startRecording()
+        if (record.state != AudioRecord.STATE_INITIALIZED) {
+            Log.e(TAG, "AudioRecord failed to initialize. State: ${record.state}")
+            onError("Microphone audio initialization failed. Please check app audio permissions.")
+            return
+        }
+
+        audioRecord = record
+        record.startRecording()
         _state.value = SessionState.LISTENING
 
         recordingJob = sessionScope.launch {
-            val buffer = ByteArray(3200) // 100ms at 16kHz 16-bit mono
+            val buffer = ByteArray(1600) // 50ms at 16kHz 16-bit mono
             while (isActive && audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
                 val read = audioRecord?.read(buffer, 0, buffer.size) ?: -1
                 if (read > 0) {
@@ -197,16 +244,16 @@ class GeminiLiveVoiceSession(
                     _userAudioLevel.value = (energy / 3000f).coerceIn(0f, 1f)
 
                     // User barge-in detection: if user speaks while AI is playing audio, interrupt AI instantly!
-                    if (isPlaying && energy > 1800f) {
+                    if (isPlaying && energy > 1600f) {
                         Log.d(TAG, "User interrupted AI speech (energy: $energy). Flushing audio output!")
                         interruptAiSpeech(ws)
                     }
 
                     val base64Data = Base64.encodeToString(buffer, 0, read, Base64.NO_WRAP)
                     val chunkJson = JSONObject().apply {
-                        put("realtime_input", JSONObject().apply {
-                            put("media_chunks", JSONArray().put(JSONObject().apply {
-                                put("mime_type", "audio/pcm")
+                        put("realtimeInput", JSONObject().apply {
+                            put("mediaChunks", JSONArray().put(JSONObject().apply {
+                                put("mimeType", "audio/pcm;rate=16000")
                                 put("data", base64Data)
                             }))
                         })
@@ -227,7 +274,7 @@ class GeminiLiveVoiceSession(
         audioTrack = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build()
             )
@@ -238,18 +285,28 @@ class GeminiLiveVoiceSession(
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                     .build()
             )
-            .setBufferSizeInBytes(minBuf)
+            .setBufferSizeInBytes(minBuf * 2)
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
 
         audioTrack?.play()
     }
 
-    private fun handleServerMessage(jsonText: String) {
+    private fun handleServerMessage(jsonText: String, ws: WebSocket) {
         runCatching {
+            Log.d(TAG, "Incoming Gemini Live server message: $jsonText")
             val root = JSONObject(jsonText)
-            val serverContent = root.optJSONObject("serverContent") ?: return
-            val modelTurn = serverContent.optJSONObject("modelTurn")
+
+            // Setup Confirmation: trigger the authentic Charon opening greeting!
+            if (root.has("setupComplete") || root.has("setup_complete")) {
+                Log.d(TAG, "Gemini Live setup complete confirmed by server.")
+                _state.value = SessionState.LISTENING
+                triggerInitialGreeting(ws)
+                return
+            }
+
+            val serverContent = root.optJSONObject("serverContent") ?: root.optJSONObject("server_content") ?: return
+            val modelTurn = serverContent.optJSONObject("modelTurn") ?: serverContent.optJSONObject("model_turn")
             val parts = modelTurn?.optJSONArray("parts")
 
             if (parts != null) {
@@ -257,7 +314,7 @@ class GeminiLiveVoiceSession(
                 isPlaying = true
                 for (i in 0 until parts.length()) {
                     val part = parts.optJSONObject(i) ?: continue
-                    val inlineData = part.optJSONObject("inlineData")
+                    val inlineData = part.optJSONObject("inlineData") ?: part.optJSONObject("inline_data")
                     if (inlineData != null) {
                         val base64 = inlineData.optString("data")
                         if (base64.isNotBlank()) {
@@ -274,7 +331,8 @@ class GeminiLiveVoiceSession(
                 }
             }
 
-            if (serverContent.optBoolean("turnComplete", false)) {
+            val turnComplete = serverContent.optBoolean("turnComplete", false) || serverContent.optBoolean("turn_complete", false)
+            if (turnComplete) {
                 isPlaying = false
                 _state.value = SessionState.LISTENING
                 _aiAudioLevel.value = 0f
@@ -283,9 +341,11 @@ class GeminiLiveVoiceSession(
             val interrupted = serverContent.optBoolean("interrupted", false)
             if (interrupted) {
                 isPlaying = false
-                audioTrack?.pause()
-                audioTrack?.flush()
-                audioTrack?.play()
+                runCatching {
+                    audioTrack?.pause()
+                    audioTrack?.flush()
+                    audioTrack?.play()
+                }
                 _state.value = SessionState.LISTENING
             }
         }.onFailure {
@@ -295,20 +355,40 @@ class GeminiLiveVoiceSession(
 
     private fun interruptAiSpeech(ws: WebSocket) {
         isPlaying = false
-        audioTrack?.pause()
-        audioTrack?.flush()
-        audioTrack?.play()
+        runCatching {
+            audioTrack?.pause()
+            audioTrack?.flush()
+            audioTrack?.play()
+        }
         _aiAudioLevel.value = 0f
         _state.value = SessionState.LISTENING
 
         // Notify Gemini server of turn interruption
         val interruptMsg = JSONObject().apply {
-            put("client_content", JSONObject().apply {
-                put("turn_complete", true)
+            put("clientContent", JSONObject().apply {
+                put("turnComplete", true)
                 put("interrupted", true)
             })
         }
         ws.send(interruptMsg.toString())
+    }
+
+    fun sendTextMessage(text: String) {
+        val clean = text.trim()
+        if (clean.isBlank()) return
+        onTranscript("USER", clean)
+        val msg = JSONObject().apply {
+            put("clientContent", JSONObject().apply {
+                put("turns", JSONArray().put(JSONObject().apply {
+                    put("role", "user")
+                    put("parts", JSONArray().put(JSONObject().apply {
+                        put("text", clean)
+                    }))
+                }))
+                put("turnComplete", true)
+            })
+        }
+        webSocket?.send(msg.toString())
     }
 
     private fun calculateRms(bytes: ByteArray, length: Int): Float {

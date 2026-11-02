@@ -84,9 +84,10 @@ object GeminiLiveVoiceClient {
                 }
             }
         } else {
-            // Google Gemini / Antigravity API keys can start with 'AQ.', 'ya29.', or 'AIzaSy'
+            // Google Gemini / Antigravity API keys can start with 'AQ.', 'ya29.' (OAuth), or 'AIzaSy'
             return@withContext runCatching {
-                val urlString = if (cleanKey.startsWith("AQ.") || cleanKey.startsWith("ya29.")) {
+                val isOAuth = cleanKey.startsWith("ya29.")
+                val urlString = if (isOAuth) {
                     "https://generativelanguage.googleapis.com/v1beta/models"
                 } else {
                     "https://generativelanguage.googleapis.com/v1beta/models?key=$cleanKey"
@@ -95,7 +96,7 @@ object GeminiLiveVoiceClient {
                 val conn = (url.openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
                     setRequestProperty("x-goog-api-key", cleanKey)
-                    if (cleanKey.startsWith("AQ.") || cleanKey.startsWith("ya29.")) {
+                    if (isOAuth) {
                         setRequestProperty("Authorization", "Bearer $cleanKey")
                     }
                     connectTimeout = 8_000
@@ -203,8 +204,8 @@ object GeminiLiveVoiceClient {
         var lastError: Exception? = null
         val models = modelCatalog?.filter { it.startsWith("gemini") }?.takeIf { it.isNotEmpty() } ?: GEMINI_MODELS
         for (model in models) {
-            val isToken = apiKey.startsWith("AQ.") || apiKey.startsWith("ya29.")
-            val targetUrl = if (isToken) {
+            val isOAuth = apiKey.startsWith("ya29.")
+            val targetUrl = if (isOAuth) {
                 "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
             } else {
                 "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
@@ -228,7 +229,7 @@ object GeminiLiveVoiceClient {
             requestMethod = "POST"
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("x-goog-api-key", apiKey)
-            if (apiKey.startsWith("AQ.") || apiKey.startsWith("ya29.")) {
+            if (apiKey.startsWith("ya29.")) {
                 setRequestProperty("Authorization", "Bearer $apiKey")
             }
             connectTimeout = 12_000

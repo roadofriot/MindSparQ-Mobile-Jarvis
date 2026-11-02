@@ -319,6 +319,7 @@ internal fun ChatTab(
     handoverCandidate: HandoverCandidate? = null,
     onExecuteHandover: () -> Unit = {},
     onDismissHandover: () -> Unit = {},
+    onOpenLiveVoice: () -> Unit = {},
 ) {
     val view = LocalView.current
     // Keep the screen on while the selected agent is working in this chat. Released automatically
@@ -725,20 +726,14 @@ internal fun ChatTab(
 
                         IconButton(
                             onClick = {
-                                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak message to agent...")
-                                }
-                                try {
-                                    chatSpeechLauncher.launch(intent)
-                                } catch (_: Exception) {}
+                                onOpenLiveVoice()
                             },
                             modifier = Modifier.size(38.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Mic,
-                                contentDescription = "Voice Dictation",
-                                tint = MaterialTheme.colorScheme.primary,
+                                contentDescription = "Live Voice JARVIS",
+                                tint = PocketOrange,
                                 modifier = Modifier.size(20.dp)
                             )
                         }

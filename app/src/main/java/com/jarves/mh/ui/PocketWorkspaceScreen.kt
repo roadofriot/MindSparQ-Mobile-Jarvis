@@ -358,6 +358,7 @@ internal fun WorkspaceScreen(
     onCleanAndroid: () -> Unit,
     onInstallAndroidTools: () -> Unit,
     onOpenAiHub: () -> Unit = {},
+    onOpenLiveVoice: () -> Unit = {},
     onSelectAgent: (AgentKind) -> Unit = {},
     onExecuteHandover: () -> Unit = {},
     onDismissHandover: () -> Unit = {},
@@ -660,6 +661,9 @@ internal fun WorkspaceScreen(
                 },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.tab_projects)) } },
                 actions = {
+                    IconButton(onClick = onOpenLiveVoice) {
+                        Icon(Icons.Default.Mic, "Live Voice JARVIS", tint = PocketOrange)
+                    }
                     IconButton(onClick = onOpenAiHub) {
                         Icon(Icons.Default.Tune, "AI Hub", tint = PocketOrange)
                     }
@@ -757,6 +761,7 @@ internal fun WorkspaceScreen(
                     handoverCandidate = state.handoverCandidate,
                     onExecuteHandover = onExecuteHandover,
                     onDismissHandover = onDismissHandover,
+                    onOpenLiveVoice = onOpenLiveVoice,
                 )
                 WorkspaceTab.FILES -> FilesTab(
                     files = state.workspaceFiles,

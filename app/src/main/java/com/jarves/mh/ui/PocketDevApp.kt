@@ -305,6 +305,7 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
     val context = LocalContext.current
     val projectsListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     var showUnifiedAiSheet by rememberSaveable { mutableStateOf(false) }
+    var showGlobalLiveVoice by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(state.toastMessage) {
         state.toastMessage?.let { message ->
             Toast.makeText(context, message, Toast.LENGTH_LONG).show()
@@ -469,6 +470,7 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             onCleanAndroid = viewModel::cleanAndroidProject,
             onInstallAndroidTools = { viewModel.installDevStack(DevStack.ANDROID) },
             onOpenAiHub = { showUnifiedAiSheet = true },
+            onOpenLiveVoice = { showGlobalLiveVoice = true },
             onSelectAgent = viewModel::selectAgent,
             onExecuteHandover = viewModel::handoverTask,
             onDismissHandover = viewModel::dismissHandover,
@@ -519,6 +521,33 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             saveFailoverChain = viewModel::saveFailoverChain,
             onToggleFailoverParallel = viewModel::toggleFailoverParallel,
             isFailoverParallel = viewModel.isFailoverParallel(),
+        )
+    }
+
+    if (showGlobalLiveVoice) {
+        val geminiKey = viewModel.getSavedApiKey(ProviderKind.GEMINI)
+        val poolGemini = viewModel.keyPoolManager.acquireCandidateKey(ProviderKind.GEMINI.name)?.secretKey.orEmpty()
+        val resolvedKey = when {
+            geminiKey.isNotBlank() && !geminiKey.startsWith("sk-or-") -> geminiKey
+            poolGemini.isNotBlank() && !poolGemini.startsWith("sk-or-") -> poolGemini
+            else -> ""
+        }
+        LiveVoiceProjectArchitectDialog(
+            geminiApiKey = resolvedKey,
+            onSaveGeminiApiKey = { key ->
+                val clean = key.trim()
+                if (clean.startsWith("sk-or-")) {
+                    viewModel.saveApiKey(ProviderKind.LLM_ROUTER, clean)
+                } else {
+                    viewModel.saveGeminiApiKey(clean)
+                }
+            },
+            keyPoolManager = viewModel.keyPoolManager,
+            onDismiss = { showGlobalLiveVoice = false },
+            onCreateProject = { projName, template, prd, trd, architecture, decisions ->
+                viewModel.scaffoldVoiceArchitectProject(projName, template, prd, trd, architecture, decisions)
+                showGlobalLiveVoice = false
+            }
         )
     }
 }
@@ -613,10 +642,10 @@ private fun RootScreenHost(
                     keyPoolManager = viewModel.keyPoolManager,
                     onGetGeminiApiKey = {
                         val geminiKey = viewModel.getSavedApiKey(ProviderKind.GEMINI)
-                        val openRouterKey = viewModel.getSavedApiKey(ProviderKind.LLM_ROUTER)
+                        val poolGemini = viewModel.keyPoolManager.acquireCandidateKey(ProviderKind.GEMINI.name)?.secretKey.orEmpty()
                         when {
-                            geminiKey.isNotBlank() -> geminiKey
-                            openRouterKey.isNotBlank() -> openRouterKey
+                            geminiKey.isNotBlank() && !geminiKey.startsWith("sk-or-") -> geminiKey
+                            poolGemini.isNotBlank() && !poolGemini.startsWith("sk-or-") -> poolGemini
                             else -> ""
                         }
                     },

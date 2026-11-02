@@ -1,17 +1,21 @@
 package com.jarves.mh.ui
 
 import com.mindsparq.jarvis.ai.gateway.KeyPoolManager
+import com.jarves.mh.model.ProviderKind
 
+import android.Manifest
 import android.app.Activity
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -136,7 +140,12 @@ fun LiveVoiceProjectArchitectDialog(
     var voiceState by remember { mutableStateOf(JarvisVoiceState.IDLE) }
     var isVoiceMuted by rememberSaveable { mutableStateOf(false) }
     var textInput by remember { mutableStateOf("") }
-    val initialKey = geminiApiKey.trim()
+    val geminiCandidate = keyPoolManager?.acquireCandidateKey(ProviderKind.GEMINI.name)?.secretKey.orEmpty()
+    val initialKey = when {
+        geminiApiKey.isNotBlank() && !geminiApiKey.startsWith("sk-or-") -> geminiApiKey.trim()
+        geminiCandidate.isNotBlank() && !geminiCandidate.startsWith("sk-or-") -> geminiCandidate.trim()
+        else -> ""
+    }
     var activeApiKey by rememberSaveable { mutableStateOf(initialKey) }
     var showApiKeyInput by rememberSaveable { mutableStateOf(initialKey.isBlank()) }
     var tempApiKey by rememberSaveable { mutableStateOf(initialKey) }
@@ -165,7 +174,7 @@ fun LiveVoiceProjectArchitectDialog(
         else -> voiceState
     }
 
-    // High-performance Text-to-Speech Engine with Multilingual Audio Synthesis
+    // High-performance Text-to-Speech Engine with Multilingual Audio Synthesis (for offline fallback)
     var ttsEngine: TextToSpeech? by remember { mutableStateOf(null) }
 
     fun speak(text: String) {
@@ -209,26 +218,7 @@ fun LiveVoiceProjectArchitectDialog(
         instance = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 instance?.language = Locale.US
-                runCatching {
-                    val voices = instance?.voices?.toList() ?: emptyList()
-                    val naturalVoice = voices.firstOrNull { voice ->
-                        voice.locale.language == "en" &&
-                            (voice.name.contains("natural", ignoreCase = true) ||
-                             voice.name.contains("neural", ignoreCase = true) ||
-                             voice.name.contains("wavenet", ignoreCase = true) ||
-                             voice.quality >= android.speech.tts.Voice.QUALITY_HIGH) &&
-                            !voice.isNetworkConnectionRequired
-                    } ?: voices.firstOrNull { it.locale.language == "en" }
-
-                    if (naturalVoice != null) instance?.voice = naturalVoice
-                    instance?.setSpeechRate(1.0f) // Natural human rate
-                    instance?.setPitch(1.0f) // Warm conversational pitch
-                }
                 ttsEngine = instance
-                if (!isVoiceMuted) {
-                    val welcome = "Online and at your service, sir. What are we building or exploring today?"
-                    instance?.speak(welcome, TextToSpeech.QUEUE_FLUSH, null, "jarvis_init")
-                }
             }
         }
         onDispose {
@@ -236,6 +226,7 @@ fun LiveVoiceProjectArchitectDialog(
             liveVoiceSession = null
             instance?.stop()
             instance?.shutdown()
+            ttsEngine = null
         }
     }
 
@@ -246,103 +237,16 @@ fun LiveVoiceProjectArchitectDialog(
         }
     }
 
-    fun handleUserInput(rawText: String) {
-        val input = rawText.trim()
-        if (input.isBlank()) return
-
-        stopSpeaking()
-        messages.add(JarvisVoiceMessage(sender = "USER", text = input))
-        voiceState = JarvisVoiceState.THINKING
-
-        val intent = GeminiLiveVoiceClient.parseVoiceIntent(input)
-        when (intent) {
-            is VoiceIntent.SwitchOffline -> {
-                val reply = "Switching active intelligence to local offline Ollama model, sir."
-                messages.add(JarvisVoiceMessage(sender = "JARVIS", text = reply))
-                speak(reply)
-            }
-            is VoiceIntent.SwitchAgent -> {
-                val reply = "Handing control over to ${intent.agentId} coding engine, sir."
-                messages.add(JarvisVoiceMessage(sender = "JARVIS", text = reply))
-                speak(reply)
-            }
-            is VoiceIntent.RunBuild -> {
-                val reply = "Initiating Android compilation and build sequence now, sir."
-                messages.add(JarvisVoiceMessage(sender = "JARVIS", text = reply))
-                speak(reply)
-            }
-            is VoiceIntent.SwitchModel -> {
-                val reply = "Switching to verified free open-source coding model on OpenRouter, sir."
-                messages.add(JarvisVoiceMessage(sender = "JARVIS", text = reply))
-                speak(reply)
-            }
-            is VoiceIntent.Conversational -> {
-                // Check if user wants to scaffold a new project
-                val lower = input.lowercase()
-                if (lower.startsWith("create project") || lower.startsWith("new project") || lower.startsWith("make project")) {
-                    val nameCandidate = input.substringAfter("project").trim().removePrefix("called").removePrefix("named").trim().take(30).ifBlank { "mindsparq-app" }
-                    val reply = "Scaffolding new project workspace for '$nameCandidate' immediately, sir."
-                    messages.add(JarvisVoiceMessage(sender = "JARVIS", text = reply))
-                    speak(reply)
-                    onCreateProject(nameCandidate, AndroidTemplate.COMPOSE, "# $nameCandidate PRD", "# $nameCandidate TRD", "# Architecture", "# Decisions")
-                    return
-                }
-
-                scope.launch {
-                    val history = messages.takeLast(10).map { it.sender to it.text }
-                    val keyToUse = activeApiKey.ifBlank { tempApiKey }.trim()
-                    val result = withContext(Dispatchers.IO) {
-                        GeminiLiveVoiceClient.generateConversationalReply(
-                            apiKey = keyToUse,
-                            userPrompt = input,
-                            history = history,
-                            languageInstruction = "Nepali and English naturally",
-                            keyPool = keyPoolManager,
-                        )
-                    }
-
-                    result.onSuccess { reply ->
-                        messages.add(JarvisVoiceMessage(sender = "JARVIS", text = reply))
-                        speak(reply)
-                    }.onFailure { err ->
-                        val rawMsg = err.localizedMessage.orEmpty()
-                        val cleanErrMsg = rawMsg
-                            .replace("java.lang.Exception: ", "")
-                            .replace("java.lang.IllegalStateException: ", "")
-                            .trim()
-                        val fallback = if (cleanErrMsg.isBlank() || cleanErrMsg.equals("null", ignoreCase = true)) {
-                            "I heard you, sir, but could not reach the AI gateway. Please check your network or API keys in [🔑]."
-                        } else {
-                            "I heard you, sir, but encountered an issue: $cleanErrMsg"
-                        }
-                        messages.add(JarvisVoiceMessage(sender = "JARVIS", text = fallback))
-                        speak(fallback)
-                    }
-                }
-            }
-        }
-    }
-
-    // Android Speech Recognition Launcher
-    val speechLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
-            if (!spoken.isNullOrBlank()) {
-                handleUserInput(spoken)
-            } else {
-                voiceState = JarvisVoiceState.IDLE
-            }
-        } else {
-            voiceState = JarvisVoiceState.IDLE
-        }
-    }
-
     fun startLiveDuplexVoice() {
-        val keyToUse = activeApiKey.ifBlank { tempApiKey }.trim()
+        val poolCandidate = keyPoolManager?.acquireCandidateKey(ProviderKind.GEMINI.name)?.secretKey.orEmpty()
+        val keyToUse = when {
+            activeApiKey.isNotBlank() && !activeApiKey.startsWith("sk-or-") -> activeApiKey.trim()
+            tempApiKey.isNotBlank() && !tempApiKey.startsWith("sk-or-") -> tempApiKey.trim()
+            poolCandidate.isNotBlank() && !poolCandidate.startsWith("sk-or-") -> poolCandidate.trim()
+            else -> ""
+        }
         if (keyToUse.isBlank()) {
-            Toast.makeText(context, "Please configure your Gemini API key in [🔑] for Live Voice", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Please configure your Google Gemini API key in [🔑] for Live Voice (Charon)", Toast.LENGTH_LONG).show()
             showApiKeyInput = true
             return
         }
@@ -350,7 +254,7 @@ fun LiveVoiceProjectArchitectDialog(
         val session = GeminiLiveVoiceSession(
             context = context,
             apiKey = keyToUse,
-            voiceName = "Puck",
+            voiceName = "Charon", // Authentic FatihMakes JARVIS voice!
             onTranscript = { sender, text ->
                 if (text.isNotBlank()) {
                     scope.launch(Dispatchers.Main) {
@@ -379,30 +283,128 @@ fun LiveVoiceProjectArchitectDialog(
         voiceState = JarvisVoiceState.IDLE
     }
 
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            startLiveDuplexVoice()
+        } else {
+            Toast.makeText(context, "Microphone permission is required for live voice conversation.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    fun ensureMicAndStartVoice() {
+        val hasPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (hasPermission) {
+            startLiveDuplexVoice()
+        } else {
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    // Auto-connect to live voice on dialog open
+    LaunchedEffect(Unit) {
+        val poolCandidate = keyPoolManager?.acquireCandidateKey(ProviderKind.GEMINI.name)?.secretKey.orEmpty()
+        val resolvedKey = when {
+            activeApiKey.isNotBlank() && !activeApiKey.startsWith("sk-or-") -> activeApiKey.trim()
+            tempApiKey.isNotBlank() && !tempApiKey.startsWith("sk-or-") -> tempApiKey.trim()
+            poolCandidate.isNotBlank() && !poolCandidate.startsWith("sk-or-") -> poolCandidate.trim()
+            else -> ""
+        }
+        if (resolvedKey.isNotBlank()) {
+            activeApiKey = resolvedKey
+            showApiKeyInput = false
+            ensureMicAndStartVoice()
+        }
+    }
+
+    fun handleUserInput(rawText: String) {
+        val input = rawText.trim()
+        if (input.isBlank()) return
+
+        stopSpeaking()
+        messages.add(JarvisVoiceMessage(sender = "USER", text = input))
+
+        // Check if user wants to scaffold a new project
+        val lower = input.lowercase()
+        if (lower.startsWith("create project") || lower.startsWith("new project") || lower.startsWith("make project")) {
+            val nameCandidate = input.substringAfter("project").trim().removePrefix("called").removePrefix("named").trim().take(30).ifBlank { "mindsparq-app" }
+            val reply = "Scaffolding new project workspace for '$nameCandidate' immediately, sir."
+            messages.add(JarvisVoiceMessage(sender = "JARVIS", text = reply))
+            if (liveVoiceSession != null && liveSessionState != GeminiLiveVoiceSession.SessionState.DISCONNECTED) {
+                liveVoiceSession?.sendTextMessage("I am scaffolding project '$nameCandidate' for the user. Acknowledge briefly as JARVIS.")
+            } else {
+                speak(reply)
+            }
+            onCreateProject(nameCandidate, AndroidTemplate.COMPOSE, "# $nameCandidate PRD", "# $nameCandidate TRD", "# Architecture", "# Decisions")
+            return
+        }
+
+        // If Live Gemini WebSocket is active, send directly to Live model!
+        if (liveVoiceSession != null && liveSessionState != GeminiLiveVoiceSession.SessionState.DISCONNECTED) {
+            liveVoiceSession?.sendTextMessage(input)
+            return
+        }
+
+        voiceState = JarvisVoiceState.THINKING
+        scope.launch {
+            val history = messages.takeLast(10).map { it.sender to it.text }
+            val keyToUse = activeApiKey.ifBlank { tempApiKey }.trim()
+            val result = withContext(Dispatchers.IO) {
+                GeminiLiveVoiceClient.generateConversationalReply(
+                    apiKey = keyToUse,
+                    userPrompt = input,
+                    history = history,
+                    languageInstruction = "Nepali and English naturally",
+                    keyPool = keyPoolManager,
+                )
+            }
+
+            result.onSuccess { reply ->
+                messages.add(JarvisVoiceMessage(sender = "JARVIS", text = reply))
+                speak(reply)
+            }.onFailure { err ->
+                val rawMsg = err.localizedMessage.orEmpty()
+                val cleanErrMsg = rawMsg
+                    .replace("java.lang.Exception: ", "")
+                    .replace("java.lang.IllegalStateException: ", "")
+                    .trim()
+                val fallback = if (cleanErrMsg.isBlank() || cleanErrMsg.equals("null", ignoreCase = true)) {
+                    "I heard you, sir, but could not reach the AI gateway. Please check your network or API keys in [🔑]."
+                } else {
+                    "I heard you, sir, but encountered an issue: $cleanErrMsg"
+                }
+                messages.add(JarvisVoiceMessage(sender = "JARVIS", text = fallback))
+                speak(fallback)
+            }
+        }
+    }
+
+    // Android Speech Recognition Launcher (fallback when mic permission or Gemini Live is unavailable)
+    val speechLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            if (!spoken.isNullOrBlank()) {
+                handleUserInput(spoken)
+            } else {
+                voiceState = JarvisVoiceState.IDLE
+            }
+        } else {
+            voiceState = JarvisVoiceState.IDLE
+        }
+    }
+
     fun triggerListening() {
         if (liveVoiceSession != null && liveSessionState != GeminiLiveVoiceSession.SessionState.DISCONNECTED) {
             stopLiveDuplexVoice()
         } else {
-            val keyToUse = activeApiKey.ifBlank { tempApiKey }.trim()
-            if (keyToUse.isNotBlank() && !keyToUse.startsWith("sk-or-")) {
-                startLiveDuplexVoice()
-            } else {
-                // Fallback to standard recognizer if no Gemini key
-                stopSpeaking()
-                voiceState = JarvisVoiceState.LISTENING
-                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
-                    putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("ne-NP", "hi-IN"))
-                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to JARVIS...")
-                }
-                try {
-                    speechLauncher.launch(intent)
-                } catch (_: Exception) {
-                    Toast.makeText(context, "Speech recognition unavailable on this device", Toast.LENGTH_SHORT).show()
-                    voiceState = JarvisVoiceState.IDLE
-                }
-            }
+            ensureMicAndStartVoice()
         }
     }
 
@@ -1002,9 +1004,9 @@ fun LiveVoiceProjectArchitectDialog(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     val chips = listOf(
-                        "Switch to Claude" to "switch to claude",
-                        "Offline Model" to "switch to offline",
-                        "Run Build" to "run build",
+                        "Enterprise Plan" to "Help me design an enterprise software architecture.",
+                        "Android Compose" to "Let's plan a Kotlin Jetpack Compose Android app.",
+                        "नेपालीमा कुरा गरौँ" to "नमस्ते JARVIS, हामी नेपालीमा कुराकानी गरौँ न।",
                     )
                     chips.forEach { (label, command) ->
                         Surface(
