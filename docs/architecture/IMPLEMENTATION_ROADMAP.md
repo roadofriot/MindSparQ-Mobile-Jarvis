@@ -21,16 +21,16 @@
 │ Phase 3: Delegate Decoupling & Line Ceiling Compliance     [COMPLETED] │
 │ • ProjectGitDelegate extraction (ProjectDelegate reduced to 964 lines)│
 ├────────────────────────────────────────────────────────────────────────┤
-│ Phase 4: Model Gateway & Dynamic Catalogue Discovery     [NEXT PHASE]  │
+│ Phase 4: Model Gateway & Dynamic Catalogue Discovery       [COMPLETED] │
 │ • Connect ModelDiscoveryService to UI, eliminate hardcoded model lists.│
 ├────────────────────────────────────────────────────────────────────────┤
-│ Phase 5: Agent Skills Standard & MCP Profiles             [PHASE 5]    │
+│ Phase 5: Agent Skills Standard & MCP Profiles             [COMPLETED]  │
 │ • Formalize ~/.jarvis/skills/ directory with SKILL.md specs.           │
 ├────────────────────────────────────────────────────────────────────────┤
-│ Phase 6: Orchestrator Finite State Machine                [PHASE 6]    │
+│ Phase 6: Orchestrator Finite State Machine                [COMPLETED]  │
 │ • Bind :engine:loop:TaskOrchestrator to MainViewModel execution cycle.│
 ├────────────────────────────────────────────────────────────────────────┤
-│ Phase 7: Cross-Platform Handoff & Release Pipelines       [PHASE 7]    │
+│ Phase 7: Cross-Platform Handoff & Release Pipelines       [NEXT PHASE] │
 │ • GitHub Actions CI/CD matrix for reproducible APK & desktop artifacts│
 └────────────────────────────────────────────────────────────────────────┘
 ```
