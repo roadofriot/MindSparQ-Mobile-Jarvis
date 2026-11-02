@@ -24,8 +24,8 @@ enum class ProviderKind(
         ProviderProtocol.OPENAI_CHAT,
         "https://generativelanguage.googleapis.com/v1beta/openai",
         "gemini-3.8-flash",
-        fixedBaseUrl = true,
-        fixedProtocol = true,
+        fixedBaseUrl = false,
+        fixedProtocol = false,
     ),
     LLM_ROUTER(
         "OpenRouter",

@@ -121,11 +121,11 @@ fun OfflineModelSection(
                     }
                 }
 
-                // Cache Cleaner button
+                // Cache Cleaner micro-button
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = Color(0xFFF59E0B).copy(alpha = 0.15f),
-                    border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFFF59E0B).copy(alpha = 0.12f),
+                    border = BorderStroke(0.8.dp, Color(0xFFF59E0B).copy(alpha = 0.35f)),
                     modifier = Modifier.clickable {
                         val result = OfflineModelManager.clearAppCache(context)
                         hwProfile = OfflineModelManager.detectHardware(context)
@@ -135,20 +135,20 @@ fun OfflineModelSection(
                     }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
                             Icons.Default.Bolt,
                             contentDescription = "Clean Cache",
                             tint = Color(0xFFF59E0B),
-                            modifier = Modifier.size(14.dp),
+                            modifier = Modifier.size(11.dp),
                         )
-                        Spacer(Modifier.width(4.dp))
+                        Spacer(Modifier.width(3.dp))
                         Text(
                             "Clean Cache",
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.SemiBold,
                             color = Color(0xFFF59E0B),
                         )
                     }

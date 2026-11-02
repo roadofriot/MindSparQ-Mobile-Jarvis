@@ -96,10 +96,15 @@ object ProjectStorageManager {
         try {
             if (internalWorkspace.exists() && internalWorkspace.isDirectory) {
                 internalWorkspace.copyRecursively(targetDir, overwrite = true)
-                // Trigger MediaScanner so files immediately appear in File Manager apps
+                // Collect all copied file paths for deep MediaScanner indexing
+                val allPaths = mutableListOf<String>()
+                allPaths.add(targetDir.absolutePath)
+                targetDir.walkTopDown().take(200).forEach { file ->
+                    allPaths.add(file.absolutePath)
+                }
                 MediaScannerConnection.scanFile(
                     context,
-                    arrayOf(targetDir.absolutePath),
+                    allPaths.toTypedArray(),
                     null
                 ) { path, uri ->
                     Log.d(TAG, "Scanned $path for MediaScanner: $uri")
@@ -152,10 +157,40 @@ object ProjectStorageManager {
      */
     fun openInFileManager(context: Context, projectName: String): Boolean {
         val publicDir = getProjectPublicDir(context, projectName)
+        // 1. First attempt: Launch Samsung My Files directly if available on device
+        try {
+            val samsungIntent = Intent("samsung.myfiles.intent.action.LAUNCH_MY_FILES").apply {
+                putExtra("samsung.myfiles.intent.extra.START_PATH", publicDir.absolutePath)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (samsungIntent.resolveActivity(context.packageManager) != null) {
+                context.startActivity(samsungIntent)
+                return true
+            }
+        } catch (_: Exception) {}
+
         val uri = runCatching {
             FileProvider.getUriForFile(context, "${context.packageName}.files", publicDir)
         }.getOrNull()
 
+        // 2. Second attempt: Standard Android Documents / Folder viewer intent with standard vnd.android.document/directory MIME
+        try {
+            val folderIntent = Intent(Intent.ACTION_VIEW).apply {
+                if (uri != null) {
+                    setDataAndType(uri, "vnd.android.document/directory")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                } else {
+                    data = Uri.fromFile(publicDir)
+                }
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (folderIntent.resolveActivity(context.packageManager) != null) {
+                context.startActivity(folderIntent)
+                return true
+            }
+        } catch (_: Exception) {}
+
+        // 3. Third attempt: resource/folder or generic file intent
         val intent = Intent(Intent.ACTION_VIEW).apply {
             if (uri != null) {
                 setDataAndType(uri, "resource/folder")
@@ -170,7 +205,7 @@ object ProjectStorageManager {
             context.startActivity(intent)
             true
         } catch (_: Exception) {
-            // Fallback: generic viewer
+            // Fallback: generic viewer chooser
             try {
                 val fallbackIntent = Intent(Intent.ACTION_VIEW).apply {
                     if (uri != null) {
@@ -181,7 +216,10 @@ object ProjectStorageManager {
                     }
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
-                context.startActivity(fallbackIntent)
+                val chooser = Intent.createChooser(fallbackIntent, "Open in File Manager").apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(chooser)
                 true
             } catch (_: Exception) {
                 false

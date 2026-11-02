@@ -260,7 +260,9 @@ class ProviderApiClient(private val context: Context? = null) {
             return HttpResult(0, "", text(R.string.rt_api_http_public, "Plain http:// is only allowed for local network addresses. Use https:// for this server."))
         }
         return runCatching {
-            val effectiveUrl = if (endpoint.contains("generativelanguage.googleapis.com") && !endpoint.contains("/openai") && apiKey.isNotBlank() && !endpoint.contains("key=")) {
+            val isGemini = endpoint.contains("generativelanguage.googleapis.com")
+            val isGeminiOAuth = apiKey.startsWith("AQ.") || apiKey.startsWith("ya29.")
+            val effectiveUrl = if (isGemini && !endpoint.contains("/openai") && apiKey.isNotBlank() && !endpoint.contains("key=") && !isGeminiOAuth) {
                 if (endpoint.contains("?")) "$endpoint&key=$apiKey" else "$endpoint?key=$apiKey"
             } else {
                 endpoint
@@ -272,14 +274,25 @@ class ProviderApiClient(private val context: Context? = null) {
                 setRequestProperty("Accept", "application/json")
                 setRequestProperty("Content-Type", "application/json")
                 if (apiKey.isNotBlank()) {
-                    setRequestProperty("Authorization", "Bearer $apiKey")
+                    if (isGemini) {
+                        // Standard Google AI Studio keys start with 'AIzaSy' and authenticate via x-goog-api-key or ?key=.
+                        // If Authorization: Bearer is sent with an AI Studio key on native endpoints,
+                        // Google returns 401 ("Expected OAuth 2 access token").
+                        // Send x-goog-api-key always for Gemini. Send Bearer ONLY if OAuth token or hitting /openai.
+                        setRequestProperty("x-goog-api-key", apiKey)
+                        if (isGeminiOAuth || endpoint.contains("/openai")) {
+                            setRequestProperty("Authorization", "Bearer $apiKey")
+                        }
+                    } else {
+                        setRequestProperty("Authorization", "Bearer $apiKey")
+                    }
                 }
                 if (endpoint.startsWith("https://opencode.ai/zen/")) {
                     // OpenCode Zen expects requests to identify the OpenCode client and session.
                     setRequestProperty("User-Agent", "opencode/1.18.20")
                     setRequestProperty("x-session-id", "session-${UUID.randomUUID()}")
                 }
-                if (apiKey.isNotBlank() && protocol != ProviderProtocol.OPENROUTER && protocol != ProviderProtocol.OPENAI_CHAT && protocol != ProviderProtocol.OPENAI_RESPONSES) {
+                if (apiKey.isNotBlank() && !isGemini && protocol != ProviderProtocol.OPENROUTER && protocol != ProviderProtocol.OPENAI_CHAT && protocol != ProviderProtocol.OPENAI_RESPONSES) {
                     setRequestProperty("x-api-key", apiKey)
                     setRequestProperty("anthropic-version", "2023-06-01")
                 }
@@ -311,8 +324,7 @@ class ProviderApiClient(private val context: Context? = null) {
             ProviderProtocol.OPENAI_CHAT, ProviderProtocol.OPENAI_RESPONSES -> {
                 if (base.contains("generativelanguage.googleapis.com")) {
                     listOf(
-                        "https://generativelanguage.googleapis.com/v1beta/models",
-                        "$base/models"
+                        "https://generativelanguage.googleapis.com/v1beta/models"
                     )
                 } else if (base.contains("127.0.0.1:11434") || base.contains("localhost:11434")) {
                     listOf(
@@ -330,6 +342,13 @@ class ProviderApiClient(private val context: Context? = null) {
 
     private fun messagesEndpoint(baseUrl: String, protocol: ProviderProtocol): String {
         val base = baseUrl.trim().trimEnd('/')
+        if (base.contains("generativelanguage.googleapis.com")) {
+            return when {
+                base.endsWith("/openai") -> "$base/chat/completions"
+                base.endsWith("/v1beta") -> "$base/openai/chat/completions"
+                else -> "$base/v1beta/openai/chat/completions"
+            }
+        }
         return when (protocol) {
             ProviderProtocol.OPENROUTER -> "$base/v1/messages"
             ProviderProtocol.OPENAI_CHAT -> "$base/chat/completions"

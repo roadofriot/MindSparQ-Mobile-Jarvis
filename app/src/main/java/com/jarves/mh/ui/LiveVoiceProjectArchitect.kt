@@ -70,6 +70,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -77,6 +78,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import com.jarves.mh.network.GeminiLiveVoiceSession
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -150,6 +152,19 @@ fun LiveVoiceProjectArchitectDialog(
         )
     }
 
+    // Real-Time Gemini Multimodal Live Full-Duplex Session
+    var liveVoiceSession by remember { mutableStateOf<GeminiLiveVoiceSession?>(null) }
+    val liveSessionState = liveVoiceSession?.state?.collectAsState()?.value ?: GeminiLiveVoiceSession.SessionState.DISCONNECTED
+    val userAudioLevel = liveVoiceSession?.userAudioLevel?.collectAsState()?.value ?: 0f
+    val aiAudioLevel = liveVoiceSession?.aiAudioLevel?.collectAsState()?.value ?: 0f
+
+    val effectiveVoiceState = when {
+        liveSessionState == GeminiLiveVoiceSession.SessionState.SPEAKING -> JarvisVoiceState.SPEAKING
+        liveSessionState == GeminiLiveVoiceSession.SessionState.LISTENING -> JarvisVoiceState.LISTENING
+        liveSessionState == GeminiLiveVoiceSession.SessionState.CONNECTING -> JarvisVoiceState.THINKING
+        else -> voiceState
+    }
+
     // High-performance Text-to-Speech Engine with Multilingual Audio Synthesis
     var ttsEngine: TextToSpeech? by remember { mutableStateOf(null) }
 
@@ -217,6 +232,8 @@ fun LiveVoiceProjectArchitectDialog(
             }
         }
         onDispose {
+            liveVoiceSession?.stop()
+            liveVoiceSession = null
             instance?.stop()
             instance?.shutdown()
         }
@@ -322,20 +339,70 @@ fun LiveVoiceProjectArchitectDialog(
         }
     }
 
-    fun triggerListening() {
-        stopSpeaking()
-        voiceState = JarvisVoiceState.LISTENING
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
-            putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("ne-NP", "hi-IN"))
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to JARVIS...")
+    fun startLiveDuplexVoice() {
+        val keyToUse = activeApiKey.ifBlank { tempApiKey }.trim()
+        if (keyToUse.isBlank()) {
+            Toast.makeText(context, "Please configure your Gemini API key in [🔑] for Live Voice", Toast.LENGTH_LONG).show()
+            showApiKeyInput = true
+            return
         }
-        try {
-            speechLauncher.launch(intent)
-        } catch (_: Exception) {
-            Toast.makeText(context, "Speech recognition unavailable on this device", Toast.LENGTH_SHORT).show()
-            voiceState = JarvisVoiceState.IDLE
+        stopSpeaking()
+        val session = GeminiLiveVoiceSession(
+            context = context,
+            apiKey = keyToUse,
+            voiceName = "Puck",
+            onTranscript = { sender, text ->
+                if (text.isNotBlank()) {
+                    scope.launch(Dispatchers.Main) {
+                        val last = messages.lastOrNull()
+                        if (last != null && last.sender == sender) {
+                            messages[messages.size - 1] = last.copy(text = "${last.text} $text".trim())
+                        } else {
+                            messages.add(JarvisVoiceMessage(sender = sender, text = text))
+                        }
+                    }
+                }
+            },
+            onError = { err ->
+                scope.launch(Dispatchers.Main) {
+                    Toast.makeText(context, "Live Voice: $err", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+        liveVoiceSession = session
+        session.start()
+    }
+
+    fun stopLiveDuplexVoice() {
+        liveVoiceSession?.stop()
+        liveVoiceSession = null
+        voiceState = JarvisVoiceState.IDLE
+    }
+
+    fun triggerListening() {
+        if (liveVoiceSession != null && liveSessionState != GeminiLiveVoiceSession.SessionState.DISCONNECTED) {
+            stopLiveDuplexVoice()
+        } else {
+            val keyToUse = activeApiKey.ifBlank { tempApiKey }.trim()
+            if (keyToUse.isNotBlank() && !keyToUse.startsWith("sk-or-")) {
+                startLiveDuplexVoice()
+            } else {
+                // Fallback to standard recognizer if no Gemini key
+                stopSpeaking()
+                voiceState = JarvisVoiceState.LISTENING
+                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
+                    putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("ne-NP", "hi-IN"))
+                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to JARVIS...")
+                }
+                try {
+                    speechLauncher.launch(intent)
+                } catch (_: Exception) {
+                    Toast.makeText(context, "Speech recognition unavailable on this device", Toast.LENGTH_SHORT).show()
+                    voiceState = JarvisVoiceState.IDLE
+                }
+            }
         }
     }
 
@@ -343,15 +410,15 @@ fun LiveVoiceProjectArchitectDialog(
     val infiniteTransition = rememberInfiniteTransition(label = "arc_reactor")
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 1f,
-        targetValue = when (voiceState) {
-            JarvisVoiceState.LISTENING -> 1.35f
-            JarvisVoiceState.SPEAKING -> 1.25f
+        targetValue = when (effectiveVoiceState) {
+            JarvisVoiceState.LISTENING -> 1.25f + (userAudioLevel * 0.4f)
+            JarvisVoiceState.SPEAKING -> 1.20f + (aiAudioLevel * 0.35f)
             JarvisVoiceState.THINKING -> 1.15f
             JarvisVoiceState.IDLE -> 1.05f
         },
         animationSpec = infiniteRepeatable(
             animation = tween(
-                durationMillis = if (voiceState == JarvisVoiceState.LISTENING) 600 else 1200,
+                durationMillis = if (effectiveVoiceState == JarvisVoiceState.LISTENING) 600 else 1200,
                 easing = FastOutSlowInEasing,
             ),
             repeatMode = RepeatMode.Reverse,
@@ -364,7 +431,7 @@ fun LiveVoiceProjectArchitectDialog(
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
             animation = tween(
-                durationMillis = if (voiceState == JarvisVoiceState.THINKING) 1400 else 6000,
+                durationMillis = if (effectiveVoiceState == JarvisVoiceState.THINKING) 1400 else 6000,
                 easing = LinearEasing,
             ),
             repeatMode = RepeatMode.Restart,
@@ -373,10 +440,10 @@ fun LiveVoiceProjectArchitectDialog(
     )
 
     val haloColor by animateColorAsState(
-        targetValue = when (voiceState) {
-            JarvisVoiceState.LISTENING -> Color(0xFFEF4444) // Energetic red/coral
+        targetValue = when (effectiveVoiceState) {
+            JarvisVoiceState.LISTENING -> Color(0xFF06B6D4) // Electric Cyan (Live duplex listening)
             JarvisVoiceState.THINKING -> Color(0xFFF59E0B)  // Golden amber
-            JarvisVoiceState.SPEAKING -> Color(0xFF06B6D4)  // Electric Cyan
+            JarvisVoiceState.SPEAKING -> Color(0xFF8B5CF6)  // Vibrant Royal Violet / Purple
             JarvisVoiceState.IDLE -> Color(0xFF3B82F6)      // Sleek Cobalt Blue
         },
         animationSpec = tween(400),
@@ -385,6 +452,7 @@ fun LiveVoiceProjectArchitectDialog(
 
     Dialog(
         onDismissRequest = {
+            stopLiveDuplexVoice()
             stopSpeaking()
             onDismiss()
         },
@@ -734,7 +802,7 @@ fun LiveVoiceProjectArchitectDialog(
                         shadowElevation = 8.dp,
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            if (voiceState == JarvisVoiceState.THINKING) {
+                            if (effectiveVoiceState == JarvisVoiceState.THINKING) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(36.dp),
                                     strokeWidth = 3.dp,
@@ -742,7 +810,7 @@ fun LiveVoiceProjectArchitectDialog(
                                 )
                             } else {
                                 Icon(
-                                    if (voiceState == JarvisVoiceState.SPEAKING) Icons.Default.Stop else Icons.Default.Mic,
+                                    if (effectiveVoiceState == JarvisVoiceState.SPEAKING) Icons.Default.Stop else Icons.Default.Mic,
                                     contentDescription = "Core State",
                                     tint = haloColor,
                                     modifier = Modifier.size(36.dp),
@@ -753,11 +821,14 @@ fun LiveVoiceProjectArchitectDialog(
                 }
 
                 Text(
-                    text = when (voiceState) {
-                        JarvisVoiceState.LISTENING -> "Listening to you, sir..."
-                        JarvisVoiceState.THINKING -> "Consulting neural intelligence..."
-                        JarvisVoiceState.SPEAKING -> "Speaking (Tap core to interrupt)..."
-                        JarvisVoiceState.IDLE -> "Tap core or mic to speak"
+                    text = when {
+                        liveSessionState == GeminiLiveVoiceSession.SessionState.SPEAKING -> "Jarvis Speaking · Natural Human Voice"
+                        liveSessionState == GeminiLiveVoiceSession.SessionState.LISTENING -> "Live Duplex Active · Speak naturally"
+                        liveSessionState == GeminiLiveVoiceSession.SessionState.CONNECTING -> "Connecting to Gemini Live Stream..."
+                        effectiveVoiceState == JarvisVoiceState.LISTENING -> "Listening to you, sir..."
+                        effectiveVoiceState == JarvisVoiceState.THINKING -> "Consulting neural intelligence..."
+                        effectiveVoiceState == JarvisVoiceState.SPEAKING -> "Speaking (Tap core to interrupt)..."
+                        else -> "Tap core to start live human conversation"
                     },
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,

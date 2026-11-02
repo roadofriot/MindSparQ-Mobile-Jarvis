@@ -198,6 +198,7 @@ dependencies {
     implementation(project(":ai:skills"))
     implementation(project(":ai:mcp"))
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.10.0")
     implementation("androidx.compose.ui:ui")

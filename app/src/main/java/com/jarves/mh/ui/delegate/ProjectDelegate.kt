@@ -477,6 +477,13 @@ class ProjectDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
     }
 
     fun openProjectInFileManager(projectName: String) {
+        val active = _state.value.activeProject ?: _state.value.projects.firstOrNull { it.name.equals(projectName, ignoreCase = true) }
+        if (active != null) {
+            val workspace = File(getApplication<Application>().filesDir, "workspaces/${active.id}")
+            if (workspace.exists()) {
+                ProjectStorageManager.syncWorkspaceToPublic(getApplication(), projectName, workspace)
+            }
+        }
         ProjectStorageManager.openInFileManager(getApplication(), projectName)
     }
 

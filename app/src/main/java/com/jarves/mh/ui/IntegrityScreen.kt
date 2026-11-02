@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -89,8 +91,9 @@ fun IntegrityScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(paddingValues)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             // Subtitle
             Text(
@@ -123,26 +126,35 @@ fun IntegrityScreen(
                         )
                     }
                     Spacer(modifier = Modifier.weight(1f))
-                    Button(
-                        onClick = {
-                            coroutineScope.launch {
-                                val next = (state.integrityCheckIntervalMinutes + 30).takeIf { it > 0 } ?: 30
-                                viewModel.setIntegrityCheckIntervalMinutes(next)
-                            }
-                        },
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("+30m")
-                    }
-                    Button(
-                        onClick = {
-                            coroutineScope.launch {
-                                viewModel.setIntegrityCheckIntervalMinutes(
-                                    (state.integrityCheckIntervalMinutes - 30).coerceAtLeast(0)
-                                )
-                            }
-                        },
-                    ) {
-                        Text("-30m")
+                        FilledTonalButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    val next = (state.integrityCheckIntervalMinutes + 30).takeIf { it > 0 } ?: 30
+                                    viewModel.setIntegrityCheckIntervalMinutes(next)
+                                }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        ) {
+                            Text("+30m", fontSize = 12.sp)
+                        }
+                        FilledTonalButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    viewModel.setIntegrityCheckIntervalMinutes(
+                                        (state.integrityCheckIntervalMinutes - 30).coerceAtLeast(0)
+                                    )
+                                }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        ) {
+                            Text("-30m", fontSize = 12.sp)
+                        }
                     }
                 }
             }
@@ -150,7 +162,7 @@ fun IntegrityScreen(
             // Action buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Button(
                     onClick = {
@@ -159,24 +171,27 @@ fun IntegrityScreen(
                         }
                     },
                     enabled = !state.integrityChecking,
-                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    modifier = Modifier.weight(1f).height(44.dp),
+                    shape = RoundedCornerShape(10.dp),
                 ) {
                     if (state.integrityChecking) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     } else {
                         Icon(
                             imageVector = Icons.Default.Check,
                             contentDescription = null,
+                            modifier = Modifier.size(18.dp),
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(stringResource(R.string.st_integrity_check_all))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(stringResource(R.string.st_integrity_check_all), fontSize = 13.sp)
                     }
                 }
-                Button(
+                FilledTonalButton(
                     onClick = { /* toggle collapsed state handled by parent */ },
-                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    modifier = Modifier.weight(1f).height(44.dp),
+                    shape = RoundedCornerShape(10.dp),
                 ) {
-                    Text("Expand All")
+                    Text("Expand All", fontSize = 13.sp)
                 }
             }
 
@@ -319,10 +334,10 @@ fun IntegrityScreen(
                                     }
                                 }
                                 Row(
-                                    horizontalArrangement = Arrangement.End,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Button(
+                                    FilledTonalButton(
                                         onClick = {
                                             coroutineScope.launch {
                                                 val workspace = File(context.filesDir, "workspaces/${project.id}")
@@ -330,19 +345,23 @@ fun IntegrityScreen(
                                             }
                                         },
                                         enabled = !state.integrityChecking,
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                     ) {
-                                        Text("Check")
+                                        Text("Check", fontSize = 12.sp)
                                     }
                                     if (result != null) {
                                         TextButton(
                                             onClick = {
                                                 viewModel.resetIntegrityBaseline(project.id)
                                             },
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                                         ) {
                                             Text(
                                                 stringResource(R.string.st_integrity_reset_baseline),
                                                 fontSize = 11.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                             )
                                         }
                                     }
