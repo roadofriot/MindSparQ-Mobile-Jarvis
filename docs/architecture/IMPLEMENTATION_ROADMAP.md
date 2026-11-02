@@ -66,7 +66,8 @@
 - [x] Implement scoped MCP task profiles (`CODING`, `TESTING`, `DESIGN`, `RESEARCH`, `DATABASE`, `ALL`) in `McpConfigExporter.kt` to enforce least-privilege tool execution.
 - [x] Verified unit tests and live hardware deployment on physical Samsung Galaxy Note 10+ (`RF8M926GJRY`).
 
-### Milestone 4: Autonomous State Graph (Phase 6)
-- [ ] Drive agent execution via `TaskOrchestrator` state machine (`QUEUED` $\to$ `COMPLETED`).
-- [ ] Persist task state transitions in `task` and `evidence` tables in `JarvisDatabase.sq`.
-- [ ] Support task interruption, state resumption, and step recovery.
+### Milestone 4: Autonomous State Graph (Phase 6) — **100% DONE**
+- [x] Drive agent execution via `TaskOrchestrator` state machine (`QUEUED` $\to$ `COMPLETED`).
+- [x] Persist task state transitions and tool outputs in `task` and `evidence` tables in `JarvisDatabase.sq`.
+- [x] Support task interruption (`interrupt`), state resumption (`resumeOrchestratorForProject`), and step recovery across app restarts.
+- [x] Verified unit tests (`TaskOrchestratorTest`) and live hardware deployment on physical Samsung Galaxy Note 10+ (`RF8M926GJRY`).
