@@ -250,9 +250,10 @@ class JarvisDatabaseBridge(private val context: Context) {
 
     fun loadMessages(projectId: String, chatId: String): List<ChatMessage> {
         val rows = queries.selectMessagesForChat(chatId).executeAsList()
-        return rows.map { row ->
+        return rows.mapNotNull { row ->
             val content = runCatching { JSONObject(row.content_json) }.getOrNull() ?: JSONObject()
-            val text = content.optString("text", "")
+            val rawText = content.optString("text", "")
+            val text = if (rawText == "null" || content.isNull("text")) "" else rawText
             val workedMillis = content.optLong("workedMillis", 0L)
 
             val attachments = content.optJSONArray("attachments")?.let { arr ->
@@ -284,15 +285,19 @@ class JarvisDatabaseBridge(private val context: Context) {
                 }
             }.orEmpty()
 
-            ChatMessage(
-                id = row.id,
-                fromUser = row.role == "user",
-                text = text,
-                createdAt = Instant.ofEpochMilli(row.created_at),
-                attachments = attachments,
-                workItems = workItems,
-                workedMillis = workedMillis,
-            )
+            if (text.isBlank() && workItems.isEmpty() && attachments.isEmpty()) {
+                null
+            } else {
+                ChatMessage(
+                    id = row.id,
+                    fromUser = row.role == "user",
+                    text = text,
+                    createdAt = Instant.ofEpochMilli(row.created_at),
+                    attachments = attachments,
+                    workItems = workItems,
+                    workedMillis = workedMillis,
+                )
+            }
         }
     }
 

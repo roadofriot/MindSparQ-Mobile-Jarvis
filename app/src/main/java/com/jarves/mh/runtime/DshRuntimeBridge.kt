@@ -901,7 +901,7 @@ internal class DshSdkProtocolParser(private val expectedSessionId: String) {
             "assistant/message" -> {
                 val content = data.optJSONObject("message")?.optJSONArray("content")
                 val text = contentText(content)
-                if (text.isBlank()) {
+                if (text.isBlank() || text == "null") {
                     DshSdkProtocolEvent.Ignored
                 } else if (streamedTextSinceMessage) {
                     // `assistant/message` repeats the completed content after the SDK has
@@ -958,7 +958,7 @@ internal class DshSdkProtocolParser(private val expectedSessionId: String) {
         return when (chunk.optString("type")) {
             "text-delta" -> {
                 val delta = chunk.optString("text")
-                if (delta.isEmpty()) return DshSdkProtocolEvent.Ignored
+                if (delta.isEmpty() || delta == "null" || chunk.isNull("text")) return DshSdkProtocolEvent.Ignored
                 textByBlock.getOrPut(blockId) { StringBuilder() }
                     .appendBounded(delta, MAX_DSH_TEXT_BLOCK_BUFFER)
                 streamedTextSinceMessage = true
@@ -974,11 +974,12 @@ internal class DshSdkProtocolParser(private val expectedSessionId: String) {
                 val block = chunk.optJSONObject("block")
                 if (block?.optString("type") == "text") {
                     val streamed = textByBlock.remove(blockId)?.toString().orEmpty()
-                    val complete = block.optString("text")
+                    val completeRaw = block.optString("text")
+                    val complete = if (completeRaw == "null" || block.isNull("text")) "" else completeRaw
                     // Text deltas are already delivered directly. The completed block normally
                     // repeats them, so avoid retaining or comparing the full response.
                     val missingSuffix = if (streamed.isEmpty()) complete.takeLast(MAX_DSH_TEXT_BLOCK_BUFFER) else ""
-                    if (missingSuffix.isBlank()) return DshSdkProtocolEvent.Ignored
+                    if (missingSuffix.isBlank() || missingSuffix == "null") return DshSdkProtocolEvent.Ignored
                     streamedTextSinceMessage = true
                     return DshSdkProtocolEvent.AssistantText(missingSuffix)
                 }

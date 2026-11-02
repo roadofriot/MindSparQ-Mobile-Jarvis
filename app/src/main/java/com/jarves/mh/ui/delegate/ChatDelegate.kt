@@ -732,6 +732,7 @@ class ChatDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
                     activity = current.activity.mapIndexed { index, item -> if (index == 0) item.copy(isComplete = true) else item },
                 )
                 is RuntimeEvent.AssistantDelta -> {
+                    if (event.text.isBlank() || event.text == "null") return@update current
                     val timeline = if (current.liveThinking || current.liveProcess.any { !isNoisyRuntimeItem(it) }) {
                         finishWorkSegment(current)
                     } else {

@@ -318,7 +318,8 @@ internal class LocalFormatGateway(
     private fun fromOpenAi(source: JSONObject, model: String): JSONObject {
         val message = source.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message") ?: JSONObject()
         val content = JSONArray()
-        val text = message.optString("content")
+        val rawText = message.optString("content")
+        val text = if (message.isNull("content") || rawText == "null") "" else rawText
         if (text.isNotBlank()) content.put(JSONObject().put("type", "text").put("text", text))
         val calls = message.optJSONArray("tool_calls") ?: JSONArray()
         for (index in 0 until calls.length()) {

@@ -354,6 +354,11 @@ internal fun ChatTab(
             !listState.canScrollForward
         }
     }
+    val visibleMessages = remember(messages) {
+        messages.filter { message ->
+            (message.text.isNotBlank() && message.text != "null") || message.workItems.isNotEmpty() || message.attachments.isNotEmpty()
+        }
+    }
     Column(Modifier.fillMaxSize().imePadding()) {
         Box(Modifier.weight(1f)) {
             LazyColumn(
@@ -362,7 +367,7 @@ internal fun ChatTab(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                items(messages, key = { it.id }) { message ->
+                items(visibleMessages, key = { it.id }) { message ->
                     if (message.workItems.isNotEmpty()) {
                         WorkBlockCard(message)
                     } else {
