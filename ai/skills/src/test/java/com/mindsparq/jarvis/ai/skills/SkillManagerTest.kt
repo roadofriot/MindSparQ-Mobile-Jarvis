@@ -57,6 +57,27 @@ class SkillManagerTest {
             assertTrue(names.contains("performance-lighthouse-audit"))
             assertTrue(names.contains("multi-provider-mcp-hub"))
             assertTrue(names.contains("multi-agent-orchestrator"))
+            assertTrue(names.contains("technical-decision-records"))
+            assertTrue(names.contains("clean-code-and-refactoring"))
+            assertTrue(names.contains("automated-testing"))
+            assertTrue(names.contains("threat-modeling"))
+            assertTrue(names.contains("production-readiness"))
+        }
+    }
+
+    @Test
+    fun testFilterSkillsForTask() {
+        val rootSkills = File("../../skills")
+        val target = if (rootSkills.exists()) rootSkills else File("skills")
+        if (target.exists()) {
+            val allSkills = SkillManager.loadAllSkills(target)
+            val codingSkills = SkillManager.filterSkillsForTask(allSkills, "coding")
+            assertTrue(codingSkills.isNotEmpty())
+            assertTrue(codingSkills.any { it.name.contains("code") || it.name.contains("healer") })
+
+            val securitySkills = SkillManager.filterSkillsForTask(allSkills, "security")
+            assertTrue(securitySkills.isNotEmpty())
+            assertTrue(securitySkills.any { it.name.contains("security") || it.name.contains("threat") })
         }
     }
 }

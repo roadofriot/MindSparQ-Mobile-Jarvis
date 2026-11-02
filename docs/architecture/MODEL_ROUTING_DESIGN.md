@@ -69,3 +69,4 @@ When an active session encounters an error (HTTP 429 rate limit, 502 gateway err
 2. **Model Fallback:** If the primary model is throttled, fall back to an equivalent model within the same capability class.
 3. **Provider Failover:** Cascade from Google Gemini $\to$ OpenRouter $\to$ Local Ollama.
 4. **Zero Silent Downgrades:** If a complex reasoning task cannot be fulfilled without a high-tier model, Jarvis displays an honest notice rather than silently producing broken code with an inferior model.
+

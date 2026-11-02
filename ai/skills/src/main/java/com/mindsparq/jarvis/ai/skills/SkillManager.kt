@@ -8,7 +8,10 @@ data class SkillDefinition(
     val allowedTools: List<String>,
     val instructionBody: String,
     val directoryPath: String,
-    val hasScripts: Boolean = false
+    val hasScripts: Boolean = false,
+    val version: String = "1.0.0",
+    val author: String = "MindSparQ",
+    val category: String = "engineering"
 )
 
 object SkillManager {
@@ -16,14 +19,18 @@ object SkillManager {
     fun parseSkillFile(skillMdFile: File): SkillDefinition? {
         if (!skillMdFile.exists() || !skillMdFile.isFile) return null
 
+        val parent = skillMdFile.parentFile ?: File(".")
+        val parentName = parent.name.ifBlank { "unknown" }
+        val parentPath = parent.absolutePath
+
         val content = skillMdFile.readText()
         if (!content.startsWith("---")) {
             return SkillDefinition(
-                name = skillMdFile.parentFile.name,
+                name = parentName,
                 description = "Skill without frontmatter",
                 allowedTools = emptyList(),
                 instructionBody = content,
-                directoryPath = skillMdFile.parentFile.absolutePath
+                directoryPath = parentPath
             )
         }
 
@@ -33,8 +40,11 @@ object SkillManager {
         val frontmatter = parts[1]
         val body = parts[2].trim()
 
-        var name = skillMdFile.parentFile.name
+        var name = parentName
         var description = ""
+        var version = "1.0.0"
+        var author = "MindSparQ"
+        var category = "engineering"
         val tools = mutableListOf<String>()
 
         var inTools = false
@@ -46,7 +56,16 @@ object SkillManager {
             } else if (trimmed.startsWith("description:")) {
                 description = trimmed.removePrefix("description:").trim()
                 inTools = false
-            } else if (trimmed.startsWith("tools:")) {
+            } else if (trimmed.startsWith("version:")) {
+                version = trimmed.removePrefix("version:").trim()
+                inTools = false
+            } else if (trimmed.startsWith("author:")) {
+                author = trimmed.removePrefix("author:").trim()
+                inTools = false
+            } else if (trimmed.startsWith("category:")) {
+                category = trimmed.removePrefix("category:").trim()
+                inTools = false
+            } else if (trimmed.startsWith("tools:") || trimmed.startsWith("allowed-tools:")) {
                 inTools = true
             } else if (inTools && trimmed.startsWith("- ")) {
                 tools.add(trimmed.removePrefix("- ").trim())
@@ -55,7 +74,7 @@ object SkillManager {
             }
         }
 
-        val scriptsDir = File(skillMdFile.parentFile, "scripts")
+        val scriptsDir = File(parent, "scripts")
         val hasScripts = scriptsDir.exists() && scriptsDir.isDirectory && (scriptsDir.listFiles()?.isNotEmpty() == true)
 
         return SkillDefinition(
@@ -63,24 +82,55 @@ object SkillManager {
             description = description,
             allowedTools = tools,
             instructionBody = body,
-            directoryPath = skillMdFile.parentFile.absolutePath,
-            hasScripts = hasScripts
+            directoryPath = parentPath,
+            hasScripts = hasScripts,
+            version = version,
+            author = author,
+            category = category
         )
     }
 
-    fun loadAllSkills(baseSkillsDir: File): List<SkillDefinition> {
-        if (!baseSkillsDir.exists() || !baseSkillsDir.isDirectory) return emptyList()
-
-        val result = mutableListOf<SkillDefinition>()
-        baseSkillsDir.listFiles()?.forEach { dir ->
-            if (dir.isDirectory) {
-                val skillMd = File(dir, "SKILL.md")
-                if (skillMd.exists()) {
-                    parseSkillFile(skillMd)?.let { result.add(it) }
+    /**
+     * Multi-directory skill discovery:
+     * Discovers skills across workspace, user directory (~/.jarvis/skills), and bundled assets.
+     * Recursively traverses subdirectories up to depth 3 with deduplication by skill name.
+     */
+    fun discoverSkills(vararg roots: File): List<SkillDefinition> {
+        val discovered = mutableMapOf<String, SkillDefinition>()
+        for (root in roots) {
+            if (!root.exists() || !root.isDirectory) continue
+            root.walkTopDown().maxDepth(3).forEach { file ->
+                if (file.isFile && file.name.equals("SKILL.md", ignoreCase = true)) {
+                    parseSkillFile(file)?.let { def ->
+                        if (!discovered.containsKey(def.name)) {
+                            discovered[def.name] = def
+                        }
+                    }
                 }
             }
         }
-        return result
+        return discovered.values.toList().sortedBy { it.name }
+    }
+
+    fun loadAllSkills(baseSkillsDir: File): List<SkillDefinition> =
+        discoverSkills(baseSkillsDir)
+
+    fun filterSkillsForTask(skills: List<SkillDefinition>, taskClass: String): List<SkillDefinition> {
+        val tc = taskClass.lowercase().trim()
+        if (tc.isEmpty() || tc == "all" || tc == "general") return skills
+        return skills.filter { s ->
+            val name = s.name.lowercase()
+            val desc = s.description.lowercase()
+            when (tc) {
+                "coding", "implementation" -> name.contains("code") || name.contains("implementation") || name.contains("healer") || name.contains("refactor")
+                "testing", "qa" -> name.contains("test") || name.contains("debug") || name.contains("verification")
+                "architecture" -> name.contains("architect") || name.contains("audit") || name.contains("decision")
+                "security" -> name.contains("security") || name.contains("threat") || name.contains("vulnerability")
+                "design", "ui" -> name.contains("design") || name.contains("taste") || name.contains("polish")
+                "performance" -> name.contains("performance") || name.contains("lighthouse") || name.contains("optimization")
+                else -> name.contains(tc) || desc.contains(tc)
+            }
+        }
     }
 }
 

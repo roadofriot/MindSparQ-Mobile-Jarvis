@@ -39,3 +39,4 @@
 | **Playwright MCP** | Browser Automation | `MISSING` | Wire Playwright MCP via headless Chromium in Linux PRoot or host browser bridge. |
 | **Context7 MCP** | Documentation Resolver | `MISSING` | Integrate Context7 MCP endpoint for real-time library documentation lookups. |
 | **Figma MCP** | Design-to-Code Context | `MISSING` | Optional design profile tool for importing design tokens and components. |
+

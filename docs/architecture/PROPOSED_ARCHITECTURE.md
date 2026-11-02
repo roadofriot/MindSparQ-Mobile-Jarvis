@@ -85,3 +85,4 @@ Each state transition requires **deterministic evidence**:
 - From `IMPLEMENTING` to `TESTING`: Diff inspection and clean compilation exit code 0.
 - From `TESTING` to `VERIFYING`: Executed test suite outputs (100% pass).
 - From `VERIFYING` to `COMPLETED`: Git status clean, no regressions, and user acceptance.
+

@@ -26,3 +26,4 @@ The current development environment is **Ubuntu Linux on an Intel Core i3-1005G1
 1. **Xcode Requirement:** Apple platform compilation (iOS/macOS `.ipa`, `.app`, simulator testing, and App Store provisioning) strictly requires macOS with Xcode command-line tools.
 2. **Honest Boundary Reporting:** In accordance with Non-Negotiable Rule 10, Jarvis does **not** claim iOS or macOS release readiness while running on Linux. 
 3. **CI/CD Handoff Strategy:** When targeting iOS/macOS, Jarvis produces verified Kotlin Multiplatform shared code (`:core`, `:ai`, `:engine`) and exports an Xcode-ready Swift package (`JarvisKit.xcframework`) for automated compilation on a remote GitHub Actions macOS runner (`macos-14`).
+

@@ -1095,8 +1095,11 @@ class AgentDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
         }
     }
 
-    fun getCachedModels(kind: ProviderKind): List<com.jarves.mh.network.DiscoveredModel>? =
-        preferences.getCachedDiscoveredModels(kind)
+    fun getCachedModels(kind: ProviderKind): List<com.jarves.mh.network.DiscoveredModel>? {
+        val fromDb = runCatching { preferences.dbBridge.loadDiscoveredModels(kind.name) }.getOrNull()
+        if (!fromDb.isNullOrEmpty()) return fromDb
+        return preferences.getCachedDiscoveredModels(kind)
+    }
 
     suspend fun discoverModels(profile: ProviderProfile, secret: String): ModelDiscoveryResult {
         val kind = profile.kind
@@ -1104,6 +1107,18 @@ class AgentDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
         val result = providerApi.discoverModels(profile.baseUrl, key, providerProtocolForAgent(profile, _state.value.agentKind))
         if (result is ModelDiscoveryResult.Success && result.models.isNotEmpty()) {
             preferences.saveCachedDiscoveredModels(kind, result.models)
+            runCatching {
+                preferences.dbBridge.saveDiscoveredModels(kind.name, result.models)
+                val descriptors = result.models.map { m ->
+                    com.mindsparq.jarvis.core.model.ModelDescriptor(
+                        providerId = kind.name.lowercase(),
+                        modelId = m.id,
+                        displayName = m.displayName,
+                        isFree = m.isFree
+                    )
+                }
+                com.mindsparq.jarvis.ai.gateway.registry.ModelRegistry.instance.registerModels(descriptors)
+            }
         }
         return result
     }

@@ -53,3 +53,4 @@ The agent must halt and request explicit user confirmation before:
 - Executing Git operations that mutate remote branches (`git push --force`).
 - Running database migrations or destructive mutations.
 - Switching to paid model providers when free models are available.
+

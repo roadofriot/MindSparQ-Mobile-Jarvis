@@ -182,8 +182,8 @@ class ModelRegistry private constructor() {
             // Anthropic
             ModelDescriptor(
                 providerId = "anthropic",
-                modelId = "claude-sonnet-4-6",
-                displayName = "Claude Sonnet 4.6",
+                modelId = "claude-3-7-sonnet-latest",
+                displayName = "Claude 3.7 Sonnet (Hybrid)",
                 contextLength = 200_000,
                 supportsTools = true,
                 supportsVision = true,
@@ -193,26 +193,50 @@ class ModelRegistry private constructor() {
             ),
             ModelDescriptor(
                 providerId = "anthropic",
-                modelId = "claude-3-7-sonnet-latest",
-                displayName = "Claude 3.7 Sonnet (Hybrid)",
+                modelId = "claude-3-5-sonnet-latest",
+                displayName = "Claude 3.5 Sonnet",
                 contextLength = 200_000,
                 supportsTools = true,
                 supportsVision = true,
-                supportsThinking = true,
+                supportsThinking = false,
                 isFree = false,
-                pinned = false
+                pinned = true
             ),
-
-            // OpenCode
             ModelDescriptor(
-                providerId = "opencode",
-                modelId = "deepseek-v4-flash",
-                displayName = "OpenCode Zen V4 Flash",
-                contextLength = 64_000,
+                providerId = "anthropic",
+                modelId = "claude-3-5-haiku-latest",
+                displayName = "Claude 3.5 Haiku",
+                contextLength = 200_000,
                 supportsTools = true,
                 supportsVision = false,
                 supportsThinking = false,
                 isFree = false,
+                pinned = false
+            ),
+
+            // OpenCode Zen / Free Tier
+            ModelDescriptor(
+                providerId = "opencode",
+                modelId = "qwen/qwen-2.5-coder-32b-instruct:free",
+                displayName = "Qwen 2.5 Coder 32B (Zen Free)",
+                contextLength = 32_768,
+                supportsTools = true,
+                supportsVision = false,
+                supportsThinking = false,
+                isFree = true,
+                openWeights = true,
+                pinned = true
+            ),
+            ModelDescriptor(
+                providerId = "opencode",
+                modelId = "deepseek/deepseek-r1:free",
+                displayName = "DeepSeek R1 (Zen Free)",
+                contextLength = 65_536,
+                supportsTools = false,
+                supportsVision = false,
+                supportsThinking = true,
+                isFree = true,
+                openWeights = true,
                 pinned = true
             )
         )

@@ -81,3 +81,4 @@ MCP servers run as isolated child processes communicating over stdio. Tool acces
 1. **Filesystem MCP:** Strictly jailed to `/workspace/<project_slug>`. Any path escaping the directory boundary is terminated immediately.
 2. **Database MCP:** Read-only by default. Destructive operations (DROP, ALTER, TRUNCATE) require explicit modal confirmation.
 3. **Fetch MCP:** Enforces strict SSRF filtering (blocks loopback `127.0.0.1`, cloud metadata `169.254.169.254`, and private subnets).
+

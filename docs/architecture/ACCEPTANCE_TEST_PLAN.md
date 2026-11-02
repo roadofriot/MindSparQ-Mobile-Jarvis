@@ -51,3 +51,4 @@
 - **When:** Key is saved.
 - **Then:** Key is stored in AndroidKeyStore `AES-256-GCM` and masked in all UI components.
 - **Status:** **`PASS`**
+

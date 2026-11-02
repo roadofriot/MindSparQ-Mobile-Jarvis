@@ -51,5 +51,33 @@ class McpConfigExporterTest {
 
         tempDir.deleteRecursively()
     }
+
+    @Test
+    fun testTaskProfileFiltering() {
+        val servers = listOf(
+            McpServerConfig(
+                id = "s1",
+                name = "filesystem",
+                transport = McpTransport.STDIO,
+                command = "npx",
+                profiles = setOf(McpTaskProfile.CODING)
+            ),
+            McpServerConfig(
+                id = "s2",
+                name = "playwright",
+                transport = McpTransport.STDIO,
+                command = "npx",
+                profiles = setOf(McpTaskProfile.TESTING)
+            )
+        )
+
+        val codingJson = McpConfigExporter.generateMcpJsonString(servers, McpTaskProfile.CODING)
+        assertTrue(codingJson.contains("\"filesystem\""))
+        assertTrue(!codingJson.contains("\"playwright\""))
+
+        val testingJson = McpConfigExporter.generateMcpJsonString(servers, McpTaskProfile.TESTING)
+        assertTrue(!testingJson.contains("\"filesystem\""))
+        assertTrue(testingJson.contains("\"playwright\""))
+    }
 }
 

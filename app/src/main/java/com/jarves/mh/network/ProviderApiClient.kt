@@ -69,7 +69,7 @@ class ProviderApiClient(private val context: Context? = null) {
                 }
                 response.code in 200..299 -> {
                     val isOpenRouter = isOpenRouterCatalogEndpoint(endpoint) || protocol == ProviderProtocol.OPENROUTER || baseUrl.contains("openrouter.ai")
-                    val models = ModelResponseParser.parse(response.body, onlyFree = isOpenRouter)
+                    val models = ModelResponseParser.parse(response.body, onlyFree = if (apiKey.isBlank()) isOpenRouter else false)
                     if (models.isNotEmpty()) return@withContext ModelDiscoveryResult.Success(models, endpoint)
                     lastMessage = text(
                         R.string.rt_api_empty_model_list,

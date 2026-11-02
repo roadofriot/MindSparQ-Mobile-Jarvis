@@ -10,6 +10,7 @@ import com.jarves.mh.model.Project
 import com.jarves.mh.model.ProjectChat
 import com.jarves.mh.model.ProjectKind
 import com.jarves.mh.model.ProjectType
+import com.jarves.mh.network.DiscoveredModel
 import com.mindsparq.jarvis.core.database.DatabaseDriverFactory
 import com.mindsparq.jarvis.core.database.JarvisDatabase
 import com.mindsparq.jarvis.core.policy.AndroidKeystoreSecretStore
@@ -357,5 +358,63 @@ class JarvisDatabaseBridge(private val context: Context) {
     fun deleteSecureSecret(alias: String) = secretStore.deleteSecret(alias)
 
     fun hasSecureSecret(alias: String): Boolean = secretStore.hasSecret(alias)
+
+    // ------------------------------------------------------------------------
+    // Dynamic Model Catalogue Relational Persistence (:core:database)
+    // ------------------------------------------------------------------------
+
+    fun saveDiscoveredModels(providerId: String, models: List<DiscoveredModel>) {
+        if (models.isEmpty()) return
+        val normalizedProvider = providerId.trim().lowercase()
+        val now = System.currentTimeMillis()
+        queries.transaction {
+            queries.upsertProvider(
+                id = normalizedProvider,
+                kind = normalizedProvider,
+                display_name = providerId,
+                base_url = "",
+                enabled = 1,
+                config_json = "{}"
+            )
+            models.forEach { m ->
+                queries.upsertModel(
+                    provider_id = normalizedProvider,
+                    model_id = m.id,
+                    display_name = m.displayName,
+                    context_length = 32000L,
+                    supports_tools = 1L,
+                    supports_vision = 0L,
+                    supports_thinking = 0L,
+                    is_free = if (m.isFree) 1L else 0L,
+                    open_weights = 0L,
+                    created_at = now,
+                    last_seen_at = now,
+                    pinned = 0L,
+                    hidden = 0L
+                )
+            }
+        }
+    }
+
+    fun loadDiscoveredModels(providerId: String): List<DiscoveredModel> {
+        val normalized = providerId.trim().lowercase()
+        return queries.selectModelsForProvider(normalized).executeAsList().map { row ->
+            DiscoveredModel(
+                id = row.model_id,
+                displayName = row.display_name,
+                isFree = row.is_free == 1L
+            )
+        }
+    }
+
+    fun loadAllDiscoveredModels(): List<DiscoveredModel> {
+        return queries.selectAllModels().executeAsList().map { row ->
+            DiscoveredModel(
+                id = row.model_id,
+                displayName = row.display_name,
+                isFree = row.is_free == 1L
+            )
+        }
+    }
 }
 

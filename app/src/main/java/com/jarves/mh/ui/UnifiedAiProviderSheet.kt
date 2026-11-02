@@ -406,62 +406,49 @@ fun UnifiedAiProviderSheet(
                     shape = RoundedCornerShape(12.dp),
                 )
 
-                // Quick Model Suggestions or Discovered Models List
-                val displayedModels = remember(discoveredModels, state.provider.kind) {
+                // -------------------------------------------------------------
+                // Dynamic Model Catalogue with Capability Filtering
+                // -------------------------------------------------------------
+                var modelFilterQuery by rememberSaveable { mutableStateOf("") }
+                var selectedCapabilityFilter by rememberSaveable { mutableStateOf("ALL") }
+
+                val allAvailableModels = remember(discoveredModels, state.provider.kind) {
                     if (discoveredModels.isNotEmpty()) {
                         discoveredModels
                     } else {
-                        when (state.provider.kind) {
-                            ProviderKind.GEMINI -> listOf(
-                                DiscoveredModel("gemini-4.0-flash", "Gemini 4.0 Flash (Next-Gen Autonomous)", isFree = true),
-                                DiscoveredModel("gemini-4-argon", "Gemini 4 Argon (Experimental Reasoning)", isFree = true),
-                                DiscoveredModel("gemini-3.8-pro", "Gemini 3.8 Pro (Ultra-Deep Logic)", isFree = true),
-                                DiscoveredModel("gemini-3.8-flash", "Gemini 3.8 Flash (High-Speed)", isFree = true),
-                                DiscoveredModel("gemini-2.5-flash", "Gemini 2.5 Flash (Fast & Multimodal)", isFree = true),
-                                DiscoveredModel("gemini-2.5-pro", "Gemini 2.5 Pro (Deep Reasoning)", isFree = true),
-                                DiscoveredModel("gemini-2.0-flash", "Gemini 2.0 Flash", isFree = true),
-                            )
-                            ProviderKind.LLM_ROUTER -> listOf(
-                                DiscoveredModel("qwen/qwen-2.5-coder-32b-instruct:free", "Qwen 2.5 Coder 32B (Verified Free)", isFree = true),
-                                DiscoveredModel("deepseek/deepseek-r1:free", "DeepSeek R1 (Verified Free)", isFree = true),
-                                DiscoveredModel("deepseek/deepseek-chat:free", "DeepSeek Chat (Verified Free)", isFree = true),
-                                DiscoveredModel("google/gemini-2.0-flash-exp:free", "Gemini 2.0 Flash Exp (Verified Free)", isFree = true),
-                                DiscoveredModel("google/gemini-2.0-flash-thinking-exp:free", "Gemini 2.0 Flash Thinking (Verified Free)", isFree = true),
-                                DiscoveredModel("mistralai/mistral-small-24b-instruct-2501:free", "Mistral Small 24B (Verified Free)", isFree = true),
-                                DiscoveredModel("meta-llama/llama-3.2-3b-instruct:free", "Llama 3.2 3B (Verified Free)", isFree = true),
-                                DiscoveredModel("meta-llama/llama-3.1-8b-instruct:free", "Llama 3.1 8B (Verified Free)", isFree = true),
-                            )
-                            ProviderKind.OLLAMA -> listOf(
-                                DiscoveredModel("qwen2.5-coder:1.5b", "Qwen 2.5 Coder 1.5B (Local Offline)", isFree = true),
-                                DiscoveredModel("qwen2.5-coder:0.5b", "Qwen 2.5 Coder 0.5B (Ultralight)", isFree = true),
-                                DiscoveredModel("deepseek-r1:1.5b", "DeepSeek R1 1.5B (Local Reasoning)", isFree = true),
-                            )
-                            ProviderKind.OPENCODE_ZEN -> listOf(
-                                DiscoveredModel("deepseek-v4-flash", "DeepSeek-V4 Flash (Zen Fast)", isFree = true),
-                                DiscoveredModel("qwen/qwen-2.5-coder-32b-instruct:free", "Qwen 2.5 Coder 32B (Verified Free)", isFree = true),
-                                DiscoveredModel("deepseek/deepseek-r1:free", "DeepSeek R1 (Verified Free · Reasoning)", isFree = true),
-                                DiscoveredModel("claude-3-5-sonnet", "Claude 3.5 Sonnet (Zen Free Tier)", isFree = true),
-                                DiscoveredModel("gpt-4o-mini", "GPT-4o Mini (Zen Free Tier)", isFree = true),
-                                DiscoveredModel("meta-llama/llama-3.3-70b-instruct:free", "Llama 3.3 70B (Verified Free)", isFree = true),
-                            )
-                            ProviderKind.NVIDIA_NIM -> listOf(
-                                DiscoveredModel("meta/llama-3.3-70b-instruct", "NVIDIA Llama 3.3 70B (Free Tier)", isFree = true),
-                                DiscoveredModel("deepseek-ai/deepseek-r1", "NVIDIA DeepSeek R1 (Free Tier)", isFree = true),
-                            )
-                            ProviderKind.DEEPSEEK -> listOf(
-                                DiscoveredModel("deepseek-chat", "DeepSeek V3 (Chat/Coding)", isFree = false),
-                                DiscoveredModel("deepseek-reasoner", "DeepSeek R1 (Reasoner)", isFree = false),
-                            )
-                            ProviderKind.ANTHROPIC -> listOf(
-                                DiscoveredModel("claude-sonnet-4-6", "Claude Sonnet 4.6", isFree = false),
-                                DiscoveredModel("claude-3-7-sonnet-latest", "Claude 3.7 Sonnet", isFree = false),
-                            )
-                            else -> emptyList()
+                        val cached = onGetCachedModels(state.provider.kind)
+                        if (!cached.isNullOrEmpty()) {
+                            cached
+                        } else {
+                            val fromRegistry = com.mindsparq.jarvis.ai.gateway.registry.ModelRegistry.instance
+                                .getModelsForProvider(state.provider.kind.name)
+                            if (fromRegistry.isNotEmpty()) {
+                                fromRegistry.map { DiscoveredModel(it.modelId, it.displayName, it.isFree) }
+                            } else {
+                                emptyList()
+                            }
                         }
                     }
                 }
 
-                if (displayedModels.isNotEmpty()) {
+                val displayedModels = remember(allAvailableModels, modelFilterQuery, selectedCapabilityFilter) {
+                    allAvailableModels.filter { model ->
+                        val matchesQuery = modelFilterQuery.isBlank() ||
+                            model.displayName.contains(modelFilterQuery, ignoreCase = true) ||
+                            model.id.contains(modelFilterQuery, ignoreCase = true)
+                        val matchesFilter = when (selectedCapabilityFilter) {
+                            "FREE" -> model.isFree
+                            "REASONING" -> model.id.contains("r1", ignoreCase = true) ||
+                                model.id.contains("reason", ignoreCase = true) ||
+                                model.id.contains("thinking", ignoreCase = true)
+                            "TOOLS" -> !model.id.contains("r1", ignoreCase = true)
+                            else -> true
+                        }
+                        matchesQuery && matchesFilter
+                    }
+                }
+
+                if (allAvailableModels.isNotEmpty()) {
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
@@ -474,48 +461,94 @@ fun UnifiedAiProviderSheet(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
-                                    if (discoveredModels.isNotEmpty()) "DISCOVERED MODELS (${displayedModels.size})" else "RECOMMENDED MODELS",
+                                    if (discoveredModels.isNotEmpty()) "DISCOVERED MODELS (${displayedModels.size})"
+                                    else "VERIFIED CATALOGUE (${displayedModels.size})",
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                                if (discoveredModels.isEmpty()) {
-                                    TextButton(
-                                        onClick = {
-                                            coroutineScope.launch {
-                                                isDiscoveringModels = true
-                                                val res = onDiscoverModels(state.provider, "")
-                                                if (res is ModelDiscoveryResult.Success) {
-                                                    discoveredModels = res.models
-                                                }
-                                                isDiscoveringModels = false
+                                TextButton(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            isDiscoveringModels = true
+                                            val res = onDiscoverModels(state.provider, "")
+                                            if (res is ModelDiscoveryResult.Success) {
+                                                discoveredModels = res.models
                                             }
-                                        },
-                                        contentPadding = PaddingValues(0.dp),
+                                            isDiscoveringModels = false
+                                        }
+                                    },
+                                    contentPadding = PaddingValues(0.dp),
+                                ) {
+                                    Text("Discover live", fontSize = 11.sp, color = PocketOrange)
+                                }
+                            }
+
+                            // Capability Filter Chips
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                listOf(
+                                    "ALL" to "All",
+                                    "FREE" to "Free Tier",
+                                    "TOOLS" to "Tools",
+                                    "REASONING" to "Reasoning"
+                                ).forEach { (key, label) ->
+                                    val isFilterSelected = selectedCapabilityFilter == key
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = if (isFilterSelected) PocketOrange else MaterialTheme.colorScheme.surfaceVariant,
+                                        modifier = Modifier.clickable { selectedCapabilityFilter = key }
                                     ) {
-                                        Text("Discover live", fontSize = 11.sp, color = PocketOrange)
+                                        Text(
+                                            text = label,
+                                            fontSize = 10.sp,
+                                            fontWeight = if (isFilterSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isFilterSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                        )
                                     }
                                 }
                             }
-                            displayedModels.take(8).forEach { model ->
+
+                            // Optional Search input if catalog has more than 5 models
+                            if (allAvailableModels.size > 5) {
+                                OutlinedTextField(
+                                    value = modelFilterQuery,
+                                    onValueChange = { modelFilterQuery = it },
+                                    placeholder = { Text("Filter models...", fontSize = 11.sp) },
+                                    singleLine = true,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                                    shape = RoundedCornerShape(8.dp),
+                                )
+                            }
+
+                            displayedModels.take(12).forEach { model ->
                                 val isSelected = state.provider.model == model.id
+                                val isThinking = model.id.contains("r1", ignoreCase = true) ||
+                                    model.id.contains("reason", ignoreCase = true) ||
+                                    model.id.contains("thinking", ignoreCase = true)
+
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable { onSelectModel(model.id) }
-                                        .padding(horizontal = 8.dp, vertical = 7.dp),
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             model.displayName,
-                                            fontSize = 12.5.sp,
+                                            fontSize = 12.sp,
                                             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                             color = if (isSelected) PocketOrange else MaterialTheme.colorScheme.onSurface,
                                         )
                                         Text(
                                             model.id,
-                                            fontSize = 10.sp,
+                                            fontSize = 9.5.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
@@ -525,14 +558,29 @@ fun UnifiedAiProviderSheet(
                                         Surface(
                                             shape = RoundedCornerShape(4.dp),
                                             color = Color(0xFF10B981).copy(alpha = 0.15f),
-                                            modifier = Modifier.padding(horizontal = 6.dp),
+                                            modifier = Modifier.padding(horizontal = 3.dp),
                                         ) {
                                             Text(
                                                 "FREE",
-                                                fontSize = 9.sp,
+                                                fontSize = 8.5.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = Color(0xFF10B981),
-                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.5.dp),
+                                            )
+                                        }
+                                    }
+                                    if (isThinking) {
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = Color(0xFF8B5CF6).copy(alpha = 0.15f),
+                                            modifier = Modifier.padding(horizontal = 3.dp),
+                                        ) {
+                                            Text(
+                                                "REASON",
+                                                fontSize = 8.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF8B5CF6),
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.5.dp),
                                             )
                                         }
                                     }
