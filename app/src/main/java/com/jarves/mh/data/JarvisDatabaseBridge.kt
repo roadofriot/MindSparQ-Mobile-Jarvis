@@ -416,5 +416,87 @@ class JarvisDatabaseBridge(private val context: Context) {
             )
         }
     }
+
+    // ------------------------------------------------------------------------
+    // Autonomous State Graph & Task Orchestrator Persistence
+    // ------------------------------------------------------------------------
+
+    fun saveTask(
+        id: String,
+        projectId: String,
+        chatId: String?,
+        title: String,
+        state: String,
+        step: Long = 0L,
+        repairAttempts: Long = 0L,
+        budgetJson: String? = null,
+        startedAt: Long = System.currentTimeMillis(),
+        endedAt: Long? = null,
+        reportMd: String? = null
+    ) {
+        queries.insertTask(
+            id = id,
+            project_id = projectId,
+            chat_id = chatId,
+            title = title,
+            state = state,
+            step = step,
+            repair_attempts = repairAttempts,
+            budget_json = budgetJson,
+            started_at = startedAt,
+            ended_at = endedAt,
+            report_md = reportMd
+        )
+    }
+
+    fun updateTaskState(
+        id: String,
+        state: String,
+        step: Long,
+        repairAttempts: Long,
+        endedAt: Long? = null,
+        reportMd: String? = null
+    ) {
+        queries.updateTaskState(
+            state = state,
+            step = step,
+            repair_attempts = repairAttempts,
+            ended_at = endedAt,
+            report_md = reportMd,
+            id = id
+        )
+    }
+
+    fun recordTaskEvidence(
+        id: String = java.util.UUID.randomUUID().toString(),
+        taskId: String,
+        kind: String,
+        summary: String,
+        exitCode: Long? = null,
+        payloadPath: String? = null,
+        createdAt: Long = System.currentTimeMillis()
+    ) {
+        queries.insertEvidence(
+            id = id,
+            task_id = taskId,
+            kind = kind,
+            summary = summary,
+            exit_code = exitCode,
+            payload_path = payloadPath,
+            created_at = createdAt
+        )
+    }
+
+    fun loadTasksForProject(projectId: String) =
+        queries.selectTasksForProject(projectId).executeAsList()
+
+    fun loadTaskById(taskId: String) =
+        queries.selectTaskById(taskId).executeAsOneOrNull()
+
+    fun loadActiveTaskForProject(projectId: String) =
+        queries.selectActiveTaskForProject(projectId).executeAsOneOrNull()
+
+    fun loadEvidenceForTask(taskId: String) =
+        queries.selectEvidenceForTask(taskId).executeAsList()
 }
 

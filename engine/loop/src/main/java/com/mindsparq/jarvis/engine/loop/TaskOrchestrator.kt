@@ -27,10 +27,14 @@ data class TaskSnapshot(
     val failureReason: String? = null
 )
 
-class TaskOrchestrator(private val context: TaskContext) {
+class TaskOrchestrator(
+    private val context: TaskContext,
+    initialSnapshot: TaskSnapshot? = null,
+    private val onTransition: ((TaskSnapshot) -> Unit)? = null
+) {
 
     private val _snapshot = MutableStateFlow(
-        TaskSnapshot(
+        initialSnapshot ?: TaskSnapshot(
             taskId = context.taskId,
             state = TaskState.QUEUED,
             currentStep = 0,
@@ -40,60 +44,78 @@ class TaskOrchestrator(private val context: TaskContext) {
     )
     val snapshot: StateFlow<TaskSnapshot> = _snapshot.asStateFlow()
 
+    private fun updateSnapshot(transform: (TaskSnapshot) -> TaskSnapshot) {
+        val next = transform(_snapshot.value)
+        _snapshot.value = next
+        onTransition?.invoke(next)
+    }
+
     fun startInspection(): Boolean {
         if (_snapshot.value.state != TaskState.QUEUED) return false
-        _snapshot.value = _snapshot.value.copy(
-            state = TaskState.INSPECTING,
-            currentStep = _snapshot.value.currentStep + 1
-        )
+        updateSnapshot {
+            it.copy(
+                state = TaskState.INSPECTING,
+                currentStep = it.currentStep + 1
+            )
+        }
         return true
     }
 
     fun proceedToPlanning(): Boolean {
         if (_snapshot.value.state != TaskState.INSPECTING) return false
-        _snapshot.value = _snapshot.value.copy(
-            state = TaskState.PLANNING,
-            currentStep = _snapshot.value.currentStep + 1
-        )
+        updateSnapshot {
+            it.copy(
+                state = TaskState.PLANNING,
+                currentStep = it.currentStep + 1
+            )
+        }
         return true
     }
 
     fun requestApproval(diffSummary: String): Boolean {
         if (_snapshot.value.state != TaskState.PLANNING && _snapshot.value.state != TaskState.IMPLEMENTING) return false
         recordEvidence(EvidenceKind.DIFF, diffSummary)
-        _snapshot.value = _snapshot.value.copy(
-            state = TaskState.AWAITING_APPROVAL,
-            currentStep = _snapshot.value.currentStep + 1
-        )
+        updateSnapshot {
+            it.copy(
+                state = TaskState.AWAITING_APPROVAL,
+                currentStep = it.currentStep + 1
+            )
+        }
         return true
     }
 
     fun onApprovalGranted(): Boolean {
         if (_snapshot.value.state != TaskState.AWAITING_APPROVAL) return false
         recordEvidence(EvidenceKind.APPROVAL, "User approved implementation plan")
-        _snapshot.value = _snapshot.value.copy(
-            state = TaskState.IMPLEMENTING,
-            currentStep = _snapshot.value.currentStep + 1
-        )
+        updateSnapshot {
+            it.copy(
+                state = TaskState.IMPLEMENTING,
+                currentStep = it.currentStep + 1
+            )
+        }
         return true
     }
 
     fun onApprovalDenied(reason: String): Boolean {
         if (_snapshot.value.state != TaskState.AWAITING_APPROVAL) return false
         recordEvidence(EvidenceKind.APPROVAL, "User denied action: $reason")
-        _snapshot.value = _snapshot.value.copy(
-            state = TaskState.CANCELLED,
-            failureReason = "User rejected approval: $reason"
-        )
+        updateSnapshot {
+            it.copy(
+                state = TaskState.CANCELLED,
+                failureReason = "User rejected approval: $reason"
+            )
+        }
         return true
     }
 
     fun runTests(): Boolean {
         if (_snapshot.value.state != TaskState.IMPLEMENTING && _snapshot.value.state != TaskState.DEBUGGING) return false
-        _snapshot.value = _snapshot.value.copy(
-            state = TaskState.TESTING,
-            currentStep = _snapshot.value.currentStep + 1
-        )
+        updateSnapshot {
+            it.copy(
+                state = TaskState.TESTING,
+                currentStep = it.currentStep + 1
+            )
+        }
         return true
     }
 
@@ -103,35 +125,90 @@ class TaskOrchestrator(private val context: TaskContext) {
         recordEvidence(EvidenceKind.TEST_RUN, testOutputSummary, exitCode = exitCode)
 
         return if (allPassed) {
-            _snapshot.value = _snapshot.value.copy(
-                state = TaskState.VERIFYING,
-                currentStep = _snapshot.value.currentStep + 1
-            )
+            updateSnapshot {
+                it.copy(
+                    state = TaskState.VERIFYING,
+                    currentStep = it.currentStep + 1
+                )
+            }
             // Complete if verified
-            _snapshot.value = _snapshot.value.copy(
-                state = TaskState.COMPLETED
-            )
+            updateSnapshot {
+                it.copy(
+                    state = TaskState.COMPLETED
+                )
+            }
             TaskState.COMPLETED
         } else {
             val nextAttempts = _snapshot.value.repairAttempts + 1
             if (nextAttempts > context.maxRepairAttempts) {
                 // Exceeded bounded retry ceiling!
-                _snapshot.value = _snapshot.value.copy(
-                    state = TaskState.FAILED,
-                    repairAttempts = nextAttempts,
-                    failureReason = "Bounded repair limit reached (${context.maxRepairAttempts} attempts). Tests still failing."
-                )
+                updateSnapshot {
+                    it.copy(
+                        state = TaskState.FAILED,
+                        repairAttempts = nextAttempts,
+                        failureReason = "Bounded repair limit reached (${context.maxRepairAttempts} attempts). Tests still failing."
+                    )
+                }
                 TaskState.FAILED
             } else {
                 // Enter Debugging loop
-                _snapshot.value = _snapshot.value.copy(
-                    state = TaskState.DEBUGGING,
-                    repairAttempts = nextAttempts,
-                    currentStep = _snapshot.value.currentStep + 1
-                )
+                updateSnapshot {
+                    it.copy(
+                        state = TaskState.DEBUGGING,
+                        repairAttempts = nextAttempts,
+                        currentStep = it.currentStep + 1
+                    )
+                }
                 TaskState.DEBUGGING
             }
         }
+    }
+
+    fun interrupt(reason: String): Boolean {
+        if (_snapshot.value.state == TaskState.COMPLETED || _snapshot.value.state == TaskState.FAILED || _snapshot.value.state == TaskState.CANCELLED) return false
+        updateSnapshot {
+            it.copy(
+                state = TaskState.BLOCKED,
+                failureReason = reason
+            )
+        }
+        return true
+    }
+
+    fun resume(): Boolean {
+        if (_snapshot.value.state != TaskState.BLOCKED) return false
+        val resumeState = if (_snapshot.value.currentStep <= 1) TaskState.PLANNING else TaskState.IMPLEMENTING
+        updateSnapshot {
+            it.copy(
+                state = resumeState,
+                failureReason = null,
+                currentStep = it.currentStep + 1
+            )
+        }
+        return true
+    }
+
+    fun complete(report: String? = null): Boolean {
+        updateSnapshot {
+            it.copy(
+                state = TaskState.COMPLETED,
+                failureReason = null
+            )
+        }
+        if (!report.isNullOrBlank()) {
+            recordEvidence(EvidenceKind.APPROVAL, report)
+        }
+        return true
+    }
+
+    fun fail(reason: String): Boolean {
+        updateSnapshot {
+            it.copy(
+                state = TaskState.FAILED,
+                failureReason = reason
+            )
+        }
+        return true
     }
 
     fun recordEvidence(kind: EvidenceKind, summary: String, exitCode: Int? = null, payloadPath: String? = null) {
@@ -144,9 +221,11 @@ class TaskOrchestrator(private val context: TaskContext) {
             payloadPath = payloadPath,
             createdAt = System.currentTimeMillis()
         )
-        _snapshot.value = _snapshot.value.copy(
-            evidenceList = _snapshot.value.evidenceList + record
-        )
+        updateSnapshot {
+            it.copy(
+                evidenceList = it.evidenceList + record
+            )
+        }
     }
 }
 

@@ -33,6 +33,12 @@ import com.jarves.mh.model.AgentKind
 import com.jarves.mh.model.ChangeItem
 import com.jarves.mh.model.ChatMessage
 import com.jarves.mh.model.ChatAttachment
+import com.mindsparq.jarvis.core.model.EvidenceKind
+import com.mindsparq.jarvis.core.model.ExecutionMode
+import com.mindsparq.jarvis.core.model.TaskState
+import com.mindsparq.jarvis.engine.loop.TaskContext
+import com.mindsparq.jarvis.engine.loop.TaskOrchestrator
+import com.mindsparq.jarvis.engine.loop.TaskSnapshot
 import com.jarves.mh.model.DevStack
 import com.jarves.mh.model.Project
 import com.jarves.mh.model.ProjectKind
@@ -172,6 +178,7 @@ import org.json.JSONObject
 class ChatDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
 
     internal var activeRuntimeRequest: RuntimeRetryRequest? = null
+    @Volatile internal var activeTaskOrchestrator: TaskOrchestrator? = null
     internal val pendingFollowUps = ArrayDeque<QueuedFollowUp>()
     @Volatile internal var steeringToFollowUp: Boolean = false
     internal val failedApiKeyIds = mutableSetOf<String>()
@@ -447,6 +454,39 @@ class ChatDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
     }.getOrDefault(false)
 
     private fun startPrompt(project: Project, prompt: String, attachments: List<ChatAttachment>) {
+        val taskId = UUID.randomUUID().toString()
+        val taskContext = TaskContext(
+            taskId = taskId,
+            projectId = project.id,
+            title = prompt.trim().take(100),
+            mode = ExecutionMode.WORK
+        )
+        val orchestrator = TaskOrchestrator(
+            context = taskContext,
+            onTransition = { snapshot ->
+                preferences.dbBridge.updateTaskState(
+                    id = snapshot.taskId,
+                    state = snapshot.state.name,
+                    step = snapshot.currentStep.toLong(),
+                    repairAttempts = snapshot.repairAttempts.toLong(),
+                    endedAt = if (snapshot.state == TaskState.COMPLETED ||
+                        snapshot.state == TaskState.FAILED ||
+                        snapshot.state == TaskState.CANCELLED) System.currentTimeMillis() else null,
+                    reportMd = snapshot.failureReason
+                )
+            }
+        )
+        activeTaskOrchestrator = orchestrator
+        preferences.dbBridge.saveTask(
+            id = taskId,
+            projectId = project.id,
+            chatId = state.value.activeChatId,
+            title = prompt.trim().take(100),
+            state = TaskState.QUEUED.name,
+            startedAt = System.currentTimeMillis()
+        )
+        orchestrator.startInspection()
+
         // requestText is sent to the agent, so it stays English; the chat title is user-facing.
         val requestText = prompt.trim().ifBlank { "Please review the attached files." }
         updateActiveChatTitle(prompt.trim().ifBlank { str(R.string.md_chat_title_attachments) })
@@ -721,6 +761,46 @@ class ChatDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
             antigravityAuthController.invalidateSession(event.reason)
         }
         if (event is RuntimeEvent.SessionFailed && retryWithNextApiKey(event)) return
+
+        // Dispatch state machine transitions and record evidence to TaskOrchestrator
+        when (event) {
+            is RuntimeEvent.SessionStarted -> activeTaskOrchestrator?.proceedToPlanning()
+            is RuntimeEvent.ReasoningProgress, is RuntimeEvent.ReasoningSummary -> activeTaskOrchestrator?.proceedToPlanning()
+            is RuntimeEvent.ToolStarted -> {
+                if (activeTaskOrchestrator?.snapshot?.value?.state == TaskState.PLANNING ||
+                    activeTaskOrchestrator?.snapshot?.value?.state == TaskState.AWAITING_APPROVAL) {
+                    activeTaskOrchestrator?.onApprovalGranted()
+                }
+            }
+            is RuntimeEvent.ToolRequested -> activeTaskOrchestrator?.requestApproval(event.request.explanation)
+            is RuntimeEvent.ToolApproved -> activeTaskOrchestrator?.onApprovalGranted()
+            is RuntimeEvent.ToolRejected -> activeTaskOrchestrator?.onApprovalDenied("Rejected by user")
+            is RuntimeEvent.ToolCompleted -> {
+                val isTest = event.toolName.contains("test", ignoreCase = true)
+                val kind = if (isTest) EvidenceKind.TEST_RUN else EvidenceKind.COMMAND
+                val exitCode = if (event.summary.contains("fail", ignoreCase = true)) 1 else 0
+                activeTaskOrchestrator?.recordEvidence(kind, summary = "${event.toolName}: ${event.summary}", exitCode = exitCode)
+                activeTaskOrchestrator?.snapshot?.value?.taskId?.let { tid ->
+                    preferences.dbBridge.recordTaskEvidence(
+                        taskId = tid,
+                        kind = kind.name,
+                        summary = "${event.toolName}: ${event.summary}",
+                        exitCode = exitCode.toLong()
+                    )
+                }
+            }
+            is RuntimeEvent.FilesChanged -> {
+                activeTaskOrchestrator?.recordEvidence(EvidenceKind.DIFF, summary = "Files modified: ${event.paths.take(6).joinToString()}")
+            }
+            is RuntimeEvent.SessionCompleted -> {
+                activeTaskOrchestrator?.complete("Task completed successfully")
+            }
+            is RuntimeEvent.SessionFailed -> {
+                activeTaskOrchestrator?.fail(event.reason.take(200))
+            }
+            else -> {}
+        }
+
         _state.update { current ->
             if (!current.isRunning) {
                 current
@@ -974,6 +1054,44 @@ class ChatDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
         // is restored as an interrupted work block rather than disappearing.
         persistMessages(includeLiveProcess = true)
     }
+
+    fun resumeOrchestratorForProject(projectId: String): Boolean {
+        val activeTask = preferences.dbBridge.loadActiveTaskForProject(projectId) ?: return false
+        val taskState = runCatching { TaskState.valueOf(activeTask.state) }.getOrDefault(TaskState.QUEUED)
+        val taskContext = TaskContext(
+            taskId = activeTask.id,
+            projectId = activeTask.project_id,
+            title = activeTask.title
+        )
+        val initialSnapshot = TaskSnapshot(
+            taskId = activeTask.id,
+            state = taskState,
+            currentStep = activeTask.step.toInt(),
+            repairAttempts = activeTask.repair_attempts.toInt(),
+            evidenceList = emptyList(),
+            failureReason = activeTask.report_md
+        )
+        val orchestrator = TaskOrchestrator(
+            context = taskContext,
+            initialSnapshot = initialSnapshot,
+            onTransition = { snapshot ->
+                preferences.dbBridge.updateTaskState(
+                    id = snapshot.taskId,
+                    state = snapshot.state.name,
+                    step = snapshot.currentStep.toLong(),
+                    repairAttempts = snapshot.repairAttempts.toLong(),
+                    endedAt = if (snapshot.state == TaskState.COMPLETED ||
+                        snapshot.state == TaskState.FAILED ||
+                        snapshot.state == TaskState.CANCELLED) System.currentTimeMillis() else null,
+                    reportMd = snapshot.failureReason
+                )
+            }
+        )
+        activeTaskOrchestrator = orchestrator
+        return orchestrator.resume()
+    }
+
+    fun getActiveTaskSnapshot(): TaskSnapshot? = activeTaskOrchestrator?.snapshot?.value
 
     private fun retryWithNextApiKey(event: RuntimeEvent.SessionFailed): Boolean {
         val current = _state.value

@@ -79,5 +79,33 @@ class TaskOrchestratorTest {
         assertEquals(TaskState.FAILED, orchestrator.snapshot.value.state)
         assertTrue(orchestrator.snapshot.value.failureReason!!.contains("Bounded repair limit reached"))
     }
+
+    @Test
+    fun testInterruptionAndResumption() {
+        var transitionCount = 0
+        val orchestrator = TaskOrchestrator(
+            context = TaskContext(projectId = "p1", title = "Resumable Task"),
+            onTransition = { transitionCount++ }
+        )
+
+        orchestrator.startInspection()
+        orchestrator.proceedToPlanning()
+
+        assertTrue(orchestrator.interrupt("Process killed by user"))
+        assertEquals(TaskState.BLOCKED, orchestrator.snapshot.value.state)
+        assertEquals("Process killed by user", orchestrator.snapshot.value.failureReason)
+
+        assertTrue(orchestrator.resume())
+        assertEquals(TaskState.IMPLEMENTING, orchestrator.snapshot.value.state)
+        assertTrue(transitionCount >= 4)
+    }
+
+    @Test
+    fun testDirectCompletion() {
+        val orchestrator = TaskOrchestrator(TaskContext(projectId = "p1", title = "Quick task"))
+        orchestrator.startInspection()
+        assertTrue(orchestrator.complete("Task completed successfully"))
+        assertEquals(TaskState.COMPLETED, orchestrator.snapshot.value.state)
+    }
 }
 

@@ -497,6 +497,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun installAppUpdate() = agentDelegate.installAppUpdate()
     fun dismissAppUpdateError() = agentDelegate.dismissAppUpdateError()
 
+    // --- Autonomous State Machine Forwarders (Phase 6) ---
+    fun resumeOrchestratorForProject(projectId: String) = chatDelegate.resumeOrchestratorForProject(projectId)
+    fun getActiveTaskSnapshot() = chatDelegate.getActiveTaskSnapshot()
+
     // --- Project Forwarders ---
     fun createQuickProject() = projectDelegate.createQuickProject()
     fun clonePublicGitRepository(url: String) = projectDelegate.clonePublicGitRepository(url)

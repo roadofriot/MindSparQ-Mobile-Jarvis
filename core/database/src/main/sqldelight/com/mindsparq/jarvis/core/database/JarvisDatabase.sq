@@ -276,9 +276,18 @@ SELECT count(*) FROM project;
 selectTasksForProject:
 SELECT * FROM task WHERE project_id = ? ORDER BY started_at DESC;
 
+selectTaskById:
+SELECT * FROM task WHERE id = ?;
+
+selectActiveTaskForProject:
+SELECT * FROM task WHERE project_id = ? AND state NOT IN ('COMPLETED', 'FAILED', 'CANCELLED') ORDER BY started_at DESC LIMIT 1;
+
 insertTask:
 INSERT OR REPLACE INTO task (id, project_id, chat_id, title, state, step, repair_attempts, budget_json, started_at, ended_at, report_md)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+updateTaskState:
+UPDATE task SET state = ?, step = ?, repair_attempts = ?, ended_at = ?, report_md = ? WHERE id = ?;
 
 selectEvidenceForTask:
 SELECT * FROM evidence WHERE task_id = ? ORDER BY created_at ASC;
