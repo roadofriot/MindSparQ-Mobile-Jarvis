@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.ui.draw.clip
 import com.jarves.mh.ui.OfflineModelSection
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -67,6 +68,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -194,6 +196,9 @@ fun AgentScreen(
     onSetAntigravityModel: (String) -> Unit = {},
     onSetAntigravityEffort: (String) -> Unit = {},
     onGetCachedModels: (ProviderKind) -> List<DiscoveredModel>? = { null },
+    onClearPing: () -> Unit = {},
+    onSwitchToFreeBackup: () -> Unit = {},
+    onSwitchToOffline: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -328,6 +333,8 @@ fun AgentScreen(
         }
     }
 
+    var showConnectionStatusDialog by remember { mutableStateOf(false) }
+
     // ── Live connection status calculations ──
     val isAntigravity = state.agentKind == AgentKind.ANTIGRAVITY
     val antigravityTesting = isAntigravity && state.apiPingStatus == ApiPingStatus.PINGING
@@ -337,16 +344,24 @@ fun AgentScreen(
     val (dot, label, pillBg) = if (isAntigravity) {
         when {
             antigravityTesting -> Triple(PocketOrange, stringResource(R.string.agent_status_testing), PocketOrange.copy(alpha = 0.13f))
-            state.antigravityAuth.status != AntigravityAuthStatus.SIGNED_IN || antigravityHelloFailed ->
-                Triple(MaterialTheme.colorScheme.error, stringResource(R.string.agent_status_attention), MaterialTheme.colorScheme.error.copy(alpha = 0.12f))
+            state.antigravityAuth.status != AntigravityAuthStatus.SIGNED_IN ->
+                Triple(Color(0xFF64B5F6), "Sign In", Color(0xFF64B5F6).copy(alpha = 0.14f))
+            antigravityHelloFailed ->
+                Triple(PocketOrange, "Check Connection", PocketOrange.copy(alpha = 0.13f))
             else -> Triple(Color(0xFF58C9A3), stringResource(R.string.agent_status_online), Color(0xFF58C9A3).copy(alpha = 0.13f))
         }
     } else {
-        when (state.apiPingStatus) {
-            ApiPingStatus.OK -> Triple(Color(0xFF58C9A3), stringResource(R.string.agent_status_online), Color(0xFF58C9A3).copy(alpha = 0.13f))
-            ApiPingStatus.FAILED -> Triple(MaterialTheme.colorScheme.error, stringResource(R.string.agent_status_attention), MaterialTheme.colorScheme.error.copy(alpha = 0.12f))
-            ApiPingStatus.PINGING -> Triple(PocketOrange, stringResource(R.string.agent_status_testing), PocketOrange.copy(alpha = 0.13f))
-            ApiPingStatus.IDLE -> Triple(MaterialTheme.colorScheme.onSurfaceVariant, stringResource(R.string.agent_status_not_tested), MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+        when {
+            state.provider.kind == ProviderKind.OLLAMA ->
+                Triple(Color(0xFF00ACC1), "Offline Ready", Color(0xFF00ACC1).copy(alpha = 0.14f))
+            state.apiPingStatus == ApiPingStatus.OK ->
+                Triple(Color(0xFF58C9A3), stringResource(R.string.agent_status_online), Color(0xFF58C9A3).copy(alpha = 0.13f))
+            state.apiPingStatus == ApiPingStatus.FAILED ->
+                Triple(PocketOrange, "Check Connection", PocketOrange.copy(alpha = 0.14f))
+            state.apiPingStatus == ApiPingStatus.PINGING ->
+                Triple(PocketOrange, stringResource(R.string.agent_status_testing), PocketOrange.copy(alpha = 0.13f))
+            else ->
+                Triple(MaterialTheme.colorScheme.onSurfaceVariant, "Ready", MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
         }
     }
 
@@ -794,6 +809,7 @@ fun AgentScreen(
                         color = pillBg,
                         shape = RoundedCornerShape(50),
                         border = BorderStroke(1.dp, dot.copy(alpha = 0.35f)),
+                        modifier = Modifier.clickable { showConnectionStatusDialog = true },
                     ) {
                         Row(
                             Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
@@ -815,6 +831,80 @@ fun AgentScreen(
             )
         },
     ) { padding ->
+        if (showConnectionStatusDialog) {
+            AlertDialog(
+                onDismissRequest = { showConnectionStatusDialog = false },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(8.dp).background(dot, CircleShape))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Connection Status", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    }
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "Current: ${state.agentKind.title} · ${state.provider.kind.title} (${state.provider.model})",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        state.apiPingMessage?.let { msg ->
+                            Text(
+                                text = msg,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } ?: Text(
+                            text = if (state.provider.kind == ProviderKind.OLLAMA) {
+                                "Running in offline mode using local models. No internet connection required."
+                            } else {
+                                "Status is normal. Tap below to verify connection or switch to free backup."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showConnectionStatusDialog = false
+                            onPing()
+                        }
+                    ) {
+                        Text("Test Connection")
+                    }
+                },
+                dismissButton = {
+                    Row {
+                        TextButton(
+                            onClick = {
+                                showConnectionStatusDialog = false
+                                onSwitchToFreeBackup()
+                            }
+                        ) {
+                            Text("Free Backup")
+                        }
+                        TextButton(
+                            onClick = {
+                                showConnectionStatusDialog = false
+                                onSwitchToOffline()
+                            }
+                        ) {
+                            Text("Offline Mode")
+                        }
+                        TextButton(
+                            onClick = {
+                                showConnectionStatusDialog = false
+                                onClearPing()
+                            }
+                        ) {
+                            Text("Dismiss")
+                        }
+                    }
+                }
+            )
+        }
         LazyColumn(
             Modifier
                 .fillMaxSize()

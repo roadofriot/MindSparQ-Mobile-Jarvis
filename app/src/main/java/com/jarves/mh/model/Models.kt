@@ -20,14 +20,20 @@ enum class ProviderKind(
 ) {
     GEMINI(
         "Google Gemini",
-        "Gemini 2.5 Flash & Pro via API key",
+        "Gemini 3.8 Flash, 4 Argon & 2.5 Flash",
         ProviderProtocol.OPENAI_CHAT,
         "https://generativelanguage.googleapis.com/v1beta/openai",
-        "gemini-2.5-flash",
+        "gemini-3.8-flash",
         fixedBaseUrl = true,
         fixedProtocol = true,
     ),
-    LLM_ROUTER("OpenRouter", "Latest verified free models via OpenRouter", ProviderProtocol.OPENROUTER, "https://openrouter.ai/api", "qwen/qwen-2.5-coder-32b-instruct:free"),
+    LLM_ROUTER(
+        "OpenRouter",
+        "Cohere North Mini, Flint, Nemotron free models",
+        ProviderProtocol.OPENROUTER,
+        "https://openrouter.ai/api",
+        "cohere/north-mini-code:free",
+    ),
     OLLAMA(
         "Ollama (Local / Offline)",
         "Local open-source models on 127.0.0.1:11434",
@@ -42,7 +48,34 @@ enum class ProviderKind(
         "Free models hosted by NVIDIA NIM",
         ProviderProtocol.OPENAI_CHAT,
         "https://integrate.api.nvidia.com/v1",
-        "meta/llama-3.3-70b-instruct",
+        "nemotron-3.5-lightning-30b-a3b",
+        fixedBaseUrl = true,
+        fixedProtocol = true,
+    ),
+    GROQ(
+        "Groq",
+        "Ultra-fast inference (GPT-OSS, Qwen)",
+        ProviderProtocol.OPENAI_CHAT,
+        "https://api.groq.com/openai/v1",
+        "openai/gpt-oss-120b",
+        fixedBaseUrl = true,
+        fixedProtocol = true,
+    ),
+    HUGGINGFACE(
+        "Hugging Face",
+        "Router inference for open models",
+        ProviderProtocol.OPENAI_CHAT,
+        "https://router.huggingface.co/v1",
+        "openai/gpt-oss-120b:fastest",
+        fixedBaseUrl = true,
+        fixedProtocol = true,
+    ),
+    CEREBRAS(
+        "Cerebras",
+        "High-speed wafer inference (Qwen 3 Coder)",
+        ProviderProtocol.OPENAI_CHAT,
+        "https://api.cerebras.ai/v1",
+        "qwen/qwen-3-coder-480b",
         fixedBaseUrl = true,
         fixedProtocol = true,
     ),
@@ -113,6 +146,9 @@ val DEEPSEEK_HARNESS_PROVIDERS: Set<ProviderKind> = setOf(
     ProviderKind.LLM_ROUTER,
     ProviderKind.OLLAMA,
     ProviderKind.NVIDIA_NIM,
+    ProviderKind.GROQ,
+    ProviderKind.HUGGINGFACE,
+    ProviderKind.CEREBRAS,
     ProviderKind.DEEPSEEK,
     ProviderKind.OPENCODE_ZEN,
     ProviderKind.ANTHROPIC,
@@ -126,6 +162,9 @@ val DSH_PROTOCOL_PROVIDERS: Set<ProviderKind> = setOf(
     ProviderKind.KIMI,
     ProviderKind.OPENCODE_ZEN,
     ProviderKind.NVIDIA_NIM,
+    ProviderKind.GROQ,
+    ProviderKind.HUGGINGFACE,
+    ProviderKind.CEREBRAS,
     ProviderKind.CUSTOM,
 )
 
@@ -134,6 +173,9 @@ fun defaultDshApiForProvider(kind: ProviderKind): String = when (kind) {
     ProviderKind.OLLAMA -> "openai-completions"
     ProviderKind.OPENCODE_ZEN -> "openai-responses"
     ProviderKind.NVIDIA_NIM -> "openai-completions"
+    ProviderKind.GROQ -> "openai-completions"
+    ProviderKind.HUGGINGFACE -> "openai-completions"
+    ProviderKind.CEREBRAS -> "openai-completions"
     else -> "anthropic-messages"
 }
 
@@ -183,6 +225,9 @@ fun providersForAgent(agent: AgentKind): List<ProviderKind> = when (agent) {
         ProviderKind.LLM_ROUTER,
         ProviderKind.OLLAMA,
         ProviderKind.NVIDIA_NIM,
+        ProviderKind.GROQ,
+        ProviderKind.HUGGINGFACE,
+        ProviderKind.CEREBRAS,
         ProviderKind.DEEPSEEK,
         ProviderKind.OPENCODE_ZEN,
         ProviderKind.ANTHROPIC,
@@ -193,6 +238,8 @@ fun providersForAgent(agent: AgentKind): List<ProviderKind> = when (agent) {
         ProviderKind.GEMINI,
         ProviderKind.LLM_ROUTER,
         ProviderKind.NVIDIA_NIM,
+        ProviderKind.GROQ,
+        ProviderKind.HUGGINGFACE,
         ProviderKind.OLLAMA,
         ProviderKind.ANTHROPIC,
         ProviderKind.CLAUDE,
@@ -205,6 +252,7 @@ fun providersForAgent(agent: AgentKind): List<ProviderKind> = when (agent) {
         ProviderKind.LLM_ROUTER,
         ProviderKind.OLLAMA,
         ProviderKind.NVIDIA_NIM,
+        ProviderKind.GROQ,
         ProviderKind.DEEPSEEK,
         ProviderKind.CUSTOM,
     )
@@ -214,6 +262,9 @@ fun providersForAgent(agent: AgentKind): List<ProviderKind> = when (agent) {
         ProviderKind.LLM_ROUTER,
         ProviderKind.OLLAMA,
         ProviderKind.NVIDIA_NIM,
+        ProviderKind.GROQ,
+        ProviderKind.HUGGINGFACE,
+        ProviderKind.CEREBRAS,
         ProviderKind.DEEPSEEK,
         ProviderKind.CUSTOM,
     )

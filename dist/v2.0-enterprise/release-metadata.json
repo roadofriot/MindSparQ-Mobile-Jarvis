@@ -1,11 +1,11 @@
 {
   "product": "MindSparQ Mobile Jarvis",
   "version": "v2.0-enterprise",
-  "builtAt": "2026-11-02T14:07:41Z",
-  "gitCommit": "5da1e20bf6c9a2d2d9d150e311bdc8db6b3922ee",
+  "builtAt": "2026-11-02T15:24:55Z",
+  "gitCommit": "1bca5e0c3ee80b83f449b3fb7701c84023edad55",
   "artifact": "mindsparq-jarvis-v2.0-enterprise.apk",
-  "sizeBytes": 77901279,
-  "sha256": "08e1fea703905e5f31d37878aacf7dbe3984aba0b0a3f25e86720d9f8e7c6b00",
+  "sizeBytes": 82870763,
+  "sha256": "a2d2eb6f4362add5104d17ccd9f47cc8c0f6bbe8bed75d4cbd3766958720323c",
   "minAndroidSdk": 28,
   "targetAndroidSdk": 36,
   "supportedArchitectures": ["arm64-v8a"]

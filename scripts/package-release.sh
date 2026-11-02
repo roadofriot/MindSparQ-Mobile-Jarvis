@@ -51,3 +51,4 @@ echo "APK: $TARGET_APK"
 echo "SHA-256 Checksum: $SHA256_HASH"
 echo "Metadata: $METADATA_FILE"
 echo "======================================================================"
+

@@ -122,3 +122,4 @@ jobs:
             :ai:skills:assemble \
             :engine:loop:assemble \
             --no-daemon --max-workers=2 -Dorg.gradle.jvmargs="-Xmx1536m"
+

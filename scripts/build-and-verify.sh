@@ -53,3 +53,4 @@ else
     echo "ERROR: Expected APK not found at $APK_PATH"
     exit 1
 fi
+

@@ -1303,5 +1303,41 @@ class AgentDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
         }
     }
 
+    fun clearPingStatus() {
+        _state.update { it.copy(apiPingStatus = ApiPingStatus.IDLE, apiPingMessage = null) }
+    }
 
+    fun switchToFreeBackup() {
+        val freeProfile = ProviderProfile(
+            kind = ProviderKind.LLM_ROUTER,
+            baseUrl = "https://openrouter.ai/api",
+            model = "cohere/north-mini-code:free",
+        )
+        preferences.saveProvider(freeProfile, _state.value.agentKind)
+        _state.update {
+            it.copy(
+                provider = freeProfile,
+                apiPingStatus = ApiPingStatus.IDLE,
+                apiPingMessage = null,
+                toastMessage = "Switched to free OpenRouter model (Cohere North Mini Code).",
+            )
+        }
+    }
+
+    fun switchToOfflineMode() {
+        val offlineProfile = ProviderProfile(
+            kind = ProviderKind.OLLAMA,
+            baseUrl = "http://127.0.0.1:11434/v1",
+            model = "qwen2.5-coder:1.5b",
+        )
+        preferences.saveProvider(offlineProfile, _state.value.agentKind)
+        _state.update {
+            it.copy(
+                provider = offlineProfile,
+                apiPingStatus = ApiPingStatus.IDLE,
+                apiPingMessage = null,
+                toastMessage = "Switched to Local Offline Mode (Qwen 2.5 Coder 1.5B).",
+            )
+        }
+    }
 }

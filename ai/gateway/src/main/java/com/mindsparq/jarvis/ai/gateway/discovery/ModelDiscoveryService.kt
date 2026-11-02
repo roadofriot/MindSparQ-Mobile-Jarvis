@@ -340,6 +340,79 @@ class ModelDiscoveryService(
         }
     }
 
+    suspend fun discoverGroqModels(apiKey: String): DiscoveryResult = withContext(Dispatchers.IO) {
+        val start = System.currentTimeMillis()
+        if (apiKey.isBlank()) {
+            return@withContext DiscoveryResult(providerId = "groq", success = false, errorMessage = "Groq API key is blank")
+        }
+        try {
+            val response = client.get("https://api.groq.com/openai/v1/models") {
+                header("Authorization", "Bearer $apiKey")
+            }
+            val duration = System.currentTimeMillis() - start
+            if (response.status != HttpStatusCode.OK) {
+                return@withContext DiscoveryResult(providerId = "groq", success = false, errorMessage = "Groq returned status ${response.status.value}", latencyMs = duration)
+            }
+            val root = json.parseToJsonElement(response.bodyAsText()).jsonObject
+            val dataArray = root["data"]?.jsonArray ?: return@withContext DiscoveryResult(providerId = "groq", success = true, latencyMs = duration)
+            val descriptors = dataArray.mapNotNull { element ->
+                val id = element.jsonObject["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                val idLower = id.lowercase()
+                ModelDescriptor(
+                    providerId = "groq",
+                    modelId = id,
+                    displayName = "$id on Groq",
+                    contextLength = 131_072,
+                    supportsTools = !idLower.contains("whisper"),
+                    supportsVision = idLower.contains("vision"),
+                    supportsThinking = idLower.contains("r1"),
+                    isFree = true,
+                    openWeights = true,
+                    pinned = true
+                )
+            }
+            registry.registerModels(descriptors)
+            DiscoveryResult(providerId = "groq", success = true, modelsDiscovered = descriptors, latencyMs = duration)
+        } catch (e: Exception) {
+            DiscoveryResult(providerId = "groq", success = false, errorMessage = e.message ?: "Failed to connect to Groq", latencyMs = System.currentTimeMillis() - start)
+        }
+    }
+
+    suspend fun discoverHuggingFaceModels(apiKey: String): DiscoveryResult = withContext(Dispatchers.IO) {
+        val start = System.currentTimeMillis()
+        if (apiKey.isBlank()) {
+            return@withContext DiscoveryResult(providerId = "huggingface", success = false, errorMessage = "Hugging Face token is blank")
+        }
+        try {
+            val response = client.get("https://router.huggingface.co/v1/models") {
+                header("Authorization", "Bearer $apiKey")
+            }
+            val duration = System.currentTimeMillis() - start
+            if (response.status != HttpStatusCode.OK) {
+                return@withContext DiscoveryResult(providerId = "huggingface", success = false, errorMessage = "Hugging Face returned status ${response.status.value}", latencyMs = duration)
+            }
+            val root = json.parseToJsonElement(response.bodyAsText()).jsonObject
+            val dataArray = root["data"]?.jsonArray ?: return@withContext DiscoveryResult(providerId = "huggingface", success = true, latencyMs = duration)
+            val descriptors = dataArray.mapNotNull { element ->
+                val id = element.jsonObject["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                ModelDescriptor(
+                    providerId = "huggingface",
+                    modelId = id,
+                    displayName = id,
+                    contextLength = 131_072,
+                    supportsTools = true,
+                    isFree = true,
+                    openWeights = true,
+                    pinned = true
+                )
+            }
+            registry.registerModels(descriptors)
+            DiscoveryResult(providerId = "huggingface", success = true, modelsDiscovered = descriptors, latencyMs = duration)
+        } catch (e: Exception) {
+            DiscoveryResult(providerId = "huggingface", success = false, errorMessage = e.message ?: "Failed to connect to Hugging Face", latencyMs = System.currentTimeMillis() - start)
+        }
+    }
+
     companion object {
         fun createDefaultHttpClient(): HttpClient {
             return HttpClient(OkHttp) {

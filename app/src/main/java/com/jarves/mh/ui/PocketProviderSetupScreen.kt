@@ -628,6 +628,9 @@ private fun providerTitleResource(provider: ProviderKind): Int = when (provider)
     ProviderKind.KIMI -> R.string.provider_title_kimi
     ProviderKind.OPENCODE_ZEN -> R.string.provider_title_opencode
     ProviderKind.NVIDIA_NIM -> R.string.provider_title_nvidia
+    ProviderKind.GROQ -> R.string.provider_title_groq
+    ProviderKind.HUGGINGFACE -> R.string.provider_title_huggingface
+    ProviderKind.CEREBRAS -> R.string.provider_title_cerebras
     ProviderKind.CUSTOM -> R.string.provider_title_custom
 }
 
@@ -642,6 +645,9 @@ private fun providerSubtitleResource(provider: ProviderKind): Int = when (provid
     ProviderKind.KIMI, ProviderKind.CUSTOM -> R.string.provider_subtitle_anthropic_compatible
     ProviderKind.OPENCODE_ZEN -> R.string.provider_subtitle_opencode
     ProviderKind.NVIDIA_NIM -> R.string.provider_subtitle_nvidia
+    ProviderKind.GROQ -> R.string.provider_subtitle_groq
+    ProviderKind.HUGGINGFACE -> R.string.provider_subtitle_huggingface
+    ProviderKind.CEREBRAS -> R.string.provider_subtitle_cerebras
 }
 
 @Composable
@@ -660,6 +666,9 @@ private fun ProviderChoiceRow(
         ProviderKind.KIMI -> Color(0xFF8B7CF6)
         ProviderKind.OPENCODE_ZEN -> Color(0xFF22C55E)
         ProviderKind.NVIDIA_NIM -> Color(0xFF76B900)
+        ProviderKind.GROQ -> Color(0xFFF55036)
+        ProviderKind.HUGGINGFACE -> Color(0xFFFFD21E)
+        ProviderKind.CEREBRAS -> Color(0xFF00C7B7)
         ProviderKind.CUSTOM -> PocketOrange
     }
     val mark = when (provider) {
@@ -672,6 +681,9 @@ private fun ProviderChoiceRow(
         ProviderKind.KIMI -> "K"
         ProviderKind.OPENCODE_ZEN -> "Z"
         ProviderKind.NVIDIA_NIM -> "NV"
+        ProviderKind.GROQ -> "GQ"
+        ProviderKind.HUGGINGFACE -> "HF"
+        ProviderKind.CEREBRAS -> "CB"
         ProviderKind.CUSTOM -> "<>"
     }
 

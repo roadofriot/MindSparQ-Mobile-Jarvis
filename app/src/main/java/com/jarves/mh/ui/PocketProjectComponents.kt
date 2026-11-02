@@ -1,6 +1,7 @@
 package com.jarves.mh.ui
 
 import androidx.activity.compose.BackHandler
+import com.jarves.mh.model.ProviderKind
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -137,11 +138,12 @@ internal fun ImportSourceButton(
 
 @Composable
 internal fun ApiStatusChip(state: AppUiState, onSettings: () -> Unit, onPing: () -> Unit) {
-    val dotColor = when (state.apiPingStatus) {
-        ApiPingStatus.OK -> PocketGreen
-        ApiPingStatus.FAILED -> MaterialTheme.colorScheme.error
-        ApiPingStatus.PINGING -> PocketOrange
-        ApiPingStatus.IDLE -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+    val dotColor = when {
+        state.provider.kind == ProviderKind.OLLAMA -> Color(0xFF00ACC1)
+        state.apiPingStatus == ApiPingStatus.OK -> PocketGreen
+        state.apiPingStatus == ApiPingStatus.FAILED -> PocketOrange
+        state.apiPingStatus == ApiPingStatus.PINGING -> PocketOrange
+        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
     }
     val agentTitle = state.agentKind.localizedTitle()
     val providerTitle = state.provider.kind.localizedTitle()

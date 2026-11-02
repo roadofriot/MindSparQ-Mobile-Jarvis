@@ -665,6 +665,9 @@ private fun RootScreenHost(
                     onSetAntigravityModel = viewModel::setAntigravityModel,
                     onSetAntigravityEffort = viewModel::setAntigravityEffort,
                     onGetCachedModels = viewModel::getCachedModels,
+                    onClearPing = viewModel::clearPingStatus,
+                    onSwitchToFreeBackup = viewModel::switchToFreeBackup,
+                    onSwitchToOffline = viewModel::switchToOfflineMode,
                 )
                 RootScreen.SETTINGS -> SettingsScreen(
                     state = state,

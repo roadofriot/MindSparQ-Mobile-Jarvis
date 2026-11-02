@@ -1141,7 +1141,36 @@ class ChatDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
             return false
         }
 
-        // 2. Multi-key pool rotation for active provider
+        // 2. Intra-provider model fallback if quota/rate limit exhausted on current model
+        if (isApiKeyFailure(event.reason)) {
+            val fallbackModel = nextModelFallback(request.provider.kind, request.provider.model)
+            if (fallbackModel != null && fallbackModel != request.provider.model) {
+                val nextModelProfile = request.provider.copy(model = fallbackModel)
+                preferences.saveProvider(nextModelProfile, current.agentKind)
+                _state.update {
+                    it.copy(
+                        provider = nextModelProfile,
+                        activeSessionId = null,
+                        toastMessage = "Quota reached for ${request.provider.model}. Auto-switched to backup model $fallbackModel.",
+                        liveProcess = it.liveProcess + ActivityItem("Model Fallback", "Switching to $fallbackModel.", true),
+                    )
+                }
+                viewModelScope.launch {
+                    kotlinx.coroutines.delay(300)
+                    activeRuntime().startSession(
+                        request.project.id,
+                        request.project.slug,
+                        request.project.kind,
+                        request.prompt,
+                        request.history,
+                        nextModelProfile,
+                    )
+                }
+                return true
+            }
+        }
+
+        // 3. Multi-key pool rotation for active provider
         if (!isApiKeyFailure(event.reason)) return false
         val credentials = vault.credentials(request.provider.kind.name)
         val active = credentials.firstOrNull { it.isActive } ?: return false
@@ -1174,26 +1203,36 @@ class ChatDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
             return true
         }
 
-        // 3. Multi-provider fallback if all keys for active provider are exhausted
+        // 4. Multi-provider cascade if all keys and models for active provider are exhausted
         val fallbackCandidates = listOf(
             ProviderKind.GEMINI,
             ProviderKind.LLM_ROUTER,
             ProviderKind.NVIDIA_NIM,
+            ProviderKind.GROQ,
             ProviderKind.DEEPSEEK,
             ProviderKind.OLLAMA,
         ).filter {
-            it != request.provider.kind && (it == ProviderKind.OLLAMA || vault.get(it.name).isNullOrBlank().not())
+            it != request.provider.kind && (
+                it == ProviderKind.OLLAMA ||
+                it == ProviderKind.LLM_ROUTER ||
+                it == ProviderKind.NVIDIA_NIM ||
+                vault.get(it.name).isNullOrBlank().not()
+            )
         }
         val nextProviderKind = fallbackCandidates.firstOrNull()
         if (nextProviderKind != null) {
-            val nextProfile = preferences.loadProvider(vault, current.agentKind).copy(kind = nextProviderKind)
+            val nextProfile = preferences.loadProvider(vault, current.agentKind).copy(
+                kind = nextProviderKind,
+                model = nextProviderKind.defaultModel,
+                baseUrl = nextProviderKind.defaultBaseUrl,
+            )
             preferences.saveProvider(nextProfile, current.agentKind)
             _state.update {
                 it.copy(
                     provider = nextProfile,
                     activeSessionId = null,
-                    toastMessage = "Quota exhausted on ${request.provider.kind.title}. Falling back to ${nextProviderKind.title}.",
-                    liveProcess = it.liveProcess + ActivityItem("Provider Fallback", "Switching to ${nextProviderKind.title}.", true),
+                    toastMessage = "Quota exhausted on ${request.provider.kind.title}. Falling back to ${nextProviderKind.title} (${nextProfile.model}).",
+                    liveProcess = it.liveProcess + ActivityItem("Provider Fallback", "Auto-switched to ${nextProviderKind.title} (${nextProfile.model}).", true),
                 )
             }
             viewModelScope.launch {
@@ -1211,6 +1250,35 @@ class ChatDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
         }
 
         return false
+    }
+
+    private fun nextModelFallback(kind: ProviderKind, currentModel: String): String? = when (kind) {
+        ProviderKind.GEMINI -> when (currentModel) {
+            "gemini-4-argon" -> "gemini-3.8-flash"
+            "gemini-3.8-flash" -> "gemini-3.6-flash"
+            "gemini-3.6-flash" -> "gemini-3.5-flash-lite"
+            "gemini-3.5-flash-lite" -> "gemini-2.5-flash"
+            else -> null
+        }
+        ProviderKind.LLM_ROUTER -> when (currentModel) {
+            "cohere/north-mini-code:free" -> "recursive/flint-v1.0:free"
+            "recursive/flint-v1.0:free" -> "nvidia/nemotron-3-ultra-550b-a55b:free"
+            "nvidia/nemotron-3-ultra-550b-a55b:free" -> "openrouter/free"
+            "openrouter/free" -> "meta-llama/llama-3.3-70b-instruct:free"
+            else -> if (currentModel != "openrouter/free") "openrouter/free" else null
+        }
+        ProviderKind.NVIDIA_NIM -> when (currentModel) {
+            "nemotron-3.5-super-vl-120b-a12b" -> "nemotron-3.5-lightning-30b-a3b"
+            "nemotron-3.5-lightning-30b-a3b" -> "minimax-m3.1-flash"
+            "minimax-m3.1-flash" -> "meta/llama-3.3-70b-instruct"
+            else -> null
+        }
+        ProviderKind.GROQ -> when (currentModel) {
+            "openai/gpt-oss-120b" -> "openai/gpt-oss-20b"
+            "openai/gpt-oss-20b" -> "qwen/qwen3.8-27b"
+            else -> null
+        }
+        else -> null
     }
 
     fun handoverTask() {

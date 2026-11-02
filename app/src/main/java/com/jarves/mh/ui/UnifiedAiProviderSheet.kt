@@ -175,30 +175,33 @@ fun UnifiedAiProviderSheet(
                 Box(
                     modifier = Modifier
                         .background(
-                            when (state.apiPingStatus) {
-                                ApiPingStatus.OK -> Color(0xFF10B981).copy(alpha = 0.15f)
-                                ApiPingStatus.FAILED -> MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
-                                ApiPingStatus.PINGING -> PocketOrange.copy(alpha = 0.15f)
-                                ApiPingStatus.IDLE -> MaterialTheme.colorScheme.surfaceVariant
+                            when {
+                                state.provider.kind == ProviderKind.OLLAMA -> Color(0xFF00ACC1).copy(alpha = 0.15f)
+                                state.apiPingStatus == ApiPingStatus.OK -> Color(0xFF10B981).copy(alpha = 0.15f)
+                                state.apiPingStatus == ApiPingStatus.FAILED -> PocketOrange.copy(alpha = 0.15f)
+                                state.apiPingStatus == ApiPingStatus.PINGING -> PocketOrange.copy(alpha = 0.15f)
+                                else -> MaterialTheme.colorScheme.surfaceVariant
                             },
                             RoundedCornerShape(8.dp),
                         )
                         .padding(horizontal = 10.dp, vertical = 5.dp),
                 ) {
                     Text(
-                        when (state.apiPingStatus) {
-                            ApiPingStatus.OK -> "HEALTHY"
-                            ApiPingStatus.FAILED -> "FAILED"
-                            ApiPingStatus.PINGING -> "TESTING..."
-                            ApiPingStatus.IDLE -> "READY"
+                        when {
+                            state.provider.kind == ProviderKind.OLLAMA -> "OFFLINE READY"
+                            state.apiPingStatus == ApiPingStatus.OK -> "HEALTHY"
+                            state.apiPingStatus == ApiPingStatus.FAILED -> "FALLBACK READY"
+                            state.apiPingStatus == ApiPingStatus.PINGING -> "TESTING..."
+                            else -> "READY"
                         },
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        color = when (state.apiPingStatus) {
-                            ApiPingStatus.OK -> Color(0xFF10B981)
-                            ApiPingStatus.FAILED -> MaterialTheme.colorScheme.error
-                            ApiPingStatus.PINGING -> PocketOrange
-                            ApiPingStatus.IDLE -> MaterialTheme.colorScheme.onSurfaceVariant
+                        color = when {
+                            state.provider.kind == ProviderKind.OLLAMA -> Color(0xFF00ACC1)
+                            state.apiPingStatus == ApiPingStatus.OK -> Color(0xFF10B981)
+                            state.apiPingStatus == ApiPingStatus.FAILED -> PocketOrange
+                            state.apiPingStatus == ApiPingStatus.PINGING -> PocketOrange
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
                         },
                     )
                 }

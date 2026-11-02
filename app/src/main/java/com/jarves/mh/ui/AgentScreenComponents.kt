@@ -396,7 +396,7 @@ internal fun AgentAntigravityCard(
                         Icon(
                             if (state.apiPingStatus == ApiPingStatus.FAILED) Icons.Default.Warning else Icons.Default.CheckCircle,
                             contentDescription = null,
-                            tint = if (state.apiPingStatus == ApiPingStatus.FAILED) MaterialTheme.colorScheme.error else Color(0xFF2E9D72),
+                            tint = if (state.apiPingStatus == ApiPingStatus.FAILED) PocketOrange else Color(0xFF2E9D72),
                             modifier = Modifier.size(14.dp),
                         )
                         Spacer(Modifier.width(7.dp))
@@ -404,7 +404,7 @@ internal fun AgentAntigravityCard(
                             message,
                             fontSize = 10.sp,
                             lineHeight = 14.sp,
-                            color = if (state.apiPingStatus == ApiPingStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (state.apiPingStatus == ApiPingStatus.FAILED) PocketOrange else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -857,7 +857,7 @@ internal fun AgentProviderCard(
                         Icon(
                             if (state.apiPingStatus == ApiPingStatus.FAILED) Icons.Default.Warning else Icons.Default.CheckCircle,
                             contentDescription = null,
-                            tint = if (state.apiPingStatus == ApiPingStatus.FAILED) MaterialTheme.colorScheme.error else Color(0xFF2E9D72),
+                            tint = if (state.apiPingStatus == ApiPingStatus.FAILED) PocketOrange else Color(0xFF2E9D72),
                             modifier = Modifier.size(14.dp),
                         )
                         Spacer(Modifier.width(7.dp))
@@ -865,7 +865,7 @@ internal fun AgentProviderCard(
                             message,
                             fontSize = 11.sp,
                             lineHeight = 15.sp,
-                            color = if (state.apiPingStatus == ApiPingStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (state.apiPingStatus == ApiPingStatus.FAILED) PocketOrange else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.weight(1f),
                         )
                     }

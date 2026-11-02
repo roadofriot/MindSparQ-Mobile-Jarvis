@@ -107,6 +107,47 @@ class ProviderRegistry private constructor() {
                 isFreeTierAvailable = false
             ),
             ProviderDescriptor(
+                id = "groq",
+                displayName = "Groq",
+                defaultBaseUrl = "https://api.groq.com/openai/v1",
+                protocol = ProviderProtocolKind.OPENAI_CHAT_COMPLETIONS,
+                defaultModelId = "openai/gpt-oss-120b",
+                supportsKeyPool = true,
+                isFreeTierAvailable = true,
+                websiteUrl = "https://console.groq.com/keys"
+            ),
+            ProviderDescriptor(
+                id = "huggingface",
+                displayName = "Hugging Face",
+                defaultBaseUrl = "https://router.huggingface.co/v1",
+                protocol = ProviderProtocolKind.OPENAI_CHAT_COMPLETIONS,
+                defaultModelId = "openai/gpt-oss-120b:fastest",
+                supportsKeyPool = true,
+                isFreeTierAvailable = true,
+                websiteUrl = "https://huggingface.co/settings/tokens"
+            ),
+            ProviderDescriptor(
+                id = "cerebras",
+                displayName = "Cerebras",
+                defaultBaseUrl = "https://api.cerebras.ai/v1",
+                protocol = ProviderProtocolKind.OPENAI_CHAT_COMPLETIONS,
+                defaultModelId = "qwen/qwen-3-coder-480b",
+                supportsKeyPool = true,
+                isFreeTierAvailable = true,
+                websiteUrl = "https://cloud.cerebras.ai/"
+            ),
+            ProviderDescriptor(
+                id = "lmstudio",
+                displayName = "LM Studio (Local / Offline)",
+                defaultBaseUrl = "http://127.0.0.1:1234/v1",
+                protocol = ProviderProtocolKind.OPENAI_CHAT_COMPLETIONS,
+                defaultModelId = "local-model",
+                supportsKeyPool = false,
+                isLocalOffline = true,
+                isFreeTierAvailable = true,
+                authPlaceholder = "no-key-required"
+            ),
+            ProviderDescriptor(
                 id = "custom",
                 displayName = "Custom OpenAI Endpoint",
                 defaultBaseUrl = "",
