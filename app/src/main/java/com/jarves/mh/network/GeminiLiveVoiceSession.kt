@@ -12,6 +12,7 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -42,7 +43,8 @@ class GeminiLiveVoiceSession(
     private val context: Context,
     private val apiKey: String,
     val voiceName: String = "Charon", // Charon (default JARVIS), Puck, Kore, Fenrir, Aoede
-    val modelName: String = "models/gemini-2.0-flash-exp",
+    val initialModel: String = "models/gemini-2.5-flash-native-audio-latest",
+    candidateModels: List<String> = emptyList(),
     private val onTranscript: (sender: String, text: String) -> Unit = { _, _ -> },
     private val onError: (String) -> Unit = {},
 ) {
@@ -52,7 +54,36 @@ class GeminiLiveVoiceSession(
         private const val SAMPLE_RATE_OUT = 24000
         private const val LIVE_WS_URL =
             "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
+
+        val DEFAULT_LIVE_LADDER = listOf(
+            "models/gemini-2.5-flash-native-audio-latest",
+            "models/gemini-2.0-flash-live-001",
+            "models/gemini-3.1-flash-live-preview",
+            "models/gemini-2.5-flash-native-audio-preview-12-2025",
+            "models/gemini-3.8-live",
+            "models/gemini-2.0-flash",
+            "models/gemini-2.5-flash",
+        )
     }
+
+    private val modelLadder: List<String> = buildList {
+        if (initialModel.isNotBlank()) {
+            val formatted = if (initialModel.startsWith("models/")) initialModel else "models/$initialModel"
+            add(formatted)
+        }
+        candidateModels.forEach { m ->
+            if (m.isNotBlank()) {
+                val formatted = if (m.startsWith("models/")) m else "models/$m"
+                if (!contains(formatted)) add(formatted)
+            }
+        }
+        DEFAULT_LIVE_LADDER.forEach { m ->
+            if (!contains(m)) add(m)
+        }
+    }
+
+    private var currentModelIndex = 0
+    val activeModel: String get() = modelLadder.getOrElse(currentModelIndex) { DEFAULT_LIVE_LADDER.first() }
 
     enum class SessionState {
         DISCONNECTED,
@@ -107,7 +138,7 @@ class GeminiLiveVoiceSession(
             "$LIVE_WS_URL?key=$cleanKey"
         }
 
-        Log.d(TAG, "Connecting Live WebSocket to $LIVE_WS_URL with key prefix='${cleanKey.take(7)}...', length=${cleanKey.length}, isOAuth=$isOAuthToken")
+        Log.d(TAG, "Connecting Live WebSocket to $LIVE_WS_URL with key prefix='${cleanKey.take(7)}...', model='$activeModel', step=${currentModelIndex + 1}/${modelLadder.size}, isOAuth=$isOAuthToken")
 
         val request = Request.Builder()
             .url(requestUrl)
@@ -131,8 +162,24 @@ class GeminiLiveVoiceSession(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e(TAG, "Gemini Live WebSocket failure: ${t.message}", t)
+                val respBody = runCatching { response?.body?.string() }.getOrNull()
+                val respCode = response?.code ?: -1
+                Log.e(TAG, "Gemini Live WebSocket failure (code $respCode): ${t.message}, body: $respBody", t)
                 _state.value = SessionState.ERROR
+
+                val isModelFailure = (respCode == 404 || respCode == 400) && currentModelIndex + 1 < modelLadder.size
+                if (isModelFailure) {
+                    val failedModel = activeModel
+                    currentModelIndex++
+                    val nextModel = activeModel
+                    Log.w(TAG, "WebSocket handshake failed for '$failedModel'. Stepping down to '$nextModel'...")
+                    sessionScope.launch {
+                        delay(250)
+                        start()
+                    }
+                    return
+                }
+
                 onError(t.message ?: "Voice connection failed")
                 stop()
             }
@@ -140,6 +187,25 @@ class GeminiLiveVoiceSession(
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Log.d(TAG, "Gemini Live WebSocket closed ($code): $reason")
                 _state.value = SessionState.DISCONNECTED
+
+                val isModelError = code == 1008 && (
+                    reason.contains("not found", ignoreCase = true) ||
+                    reason.contains("not supported", ignoreCase = true) ||
+                    reason.contains("model", ignoreCase = true)
+                )
+
+                if (isModelError && currentModelIndex + 1 < modelLadder.size) {
+                    val failedModel = activeModel
+                    currentModelIndex++
+                    val nextModel = activeModel
+                    Log.w(TAG, "Live model '$failedModel' not supported on this endpoint. Stepping down ladder to '$nextModel'...")
+                    sessionScope.launch {
+                        delay(250)
+                        start()
+                    }
+                    return
+                }
+
                 if (code != 1000) {
                     onError("Live session closed ($code): $reason")
                 }
@@ -148,9 +214,11 @@ class GeminiLiveVoiceSession(
     }
 
     private fun sendSetupMessage(ws: WebSocket) {
+        val modelToUse = activeModel
+        Log.d(TAG, "Sending Live setup message with voice '$voiceName' using model '$modelToUse' (step ${currentModelIndex + 1}/${modelLadder.size})")
         val setupJson = JSONObject().apply {
             put("setup", JSONObject().apply {
-                put("model", modelName)
+                put("model", modelToUse)
                 put("generationConfig", JSONObject().apply {
                     put("responseModalities", JSONArray().put("AUDIO"))
                     put("speechConfig", JSONObject().apply {

@@ -781,12 +781,15 @@ class ChatDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
                 val exitCode = if (event.summary.contains("fail", ignoreCase = true)) 1 else 0
                 activeTaskOrchestrator?.recordEvidence(kind, summary = "${event.toolName}: ${event.summary}", exitCode = exitCode)
                 activeTaskOrchestrator?.snapshot?.value?.taskId?.let { tid ->
-                    preferences.dbBridge.recordTaskEvidence(
-                        taskId = tid,
-                        kind = kind.name,
-                        summary = "${event.toolName}: ${event.summary}",
-                        exitCode = exitCode.toLong()
-                    )
+                    runCatching {
+                        preferences.dbBridge.recordTaskEvidence(
+                            taskId = tid,
+                            kind = kind.name,
+                            summary = "${event.toolName}: ${event.summary}",
+                            exitCode = exitCode.toLong(),
+                            projectIdFallback = _state.value.activeProject?.id
+                        )
+                    }.onFailure { android.util.Log.e("ChatDelegate", "Failed to record task evidence", it) }
                 }
             }
             is RuntimeEvent.FilesChanged -> {

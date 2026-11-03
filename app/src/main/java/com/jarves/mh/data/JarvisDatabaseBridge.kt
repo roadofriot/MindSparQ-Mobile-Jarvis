@@ -434,19 +434,51 @@ class JarvisDatabaseBridge(private val context: Context) {
         endedAt: Long? = null,
         reportMd: String? = null
     ) {
-        queries.insertTask(
-            id = id,
-            project_id = projectId,
-            chat_id = chatId,
-            title = title,
-            state = state,
-            step = step,
-            repair_attempts = repairAttempts,
-            budget_json = budgetJson,
-            started_at = startedAt,
-            ended_at = endedAt,
-            report_md = reportMd
-        )
+        if (id.isBlank() || projectId.isBlank()) return
+        runCatching {
+            queries.transaction {
+                // Ensure parent project row exists so FK NEVER fails
+                val projectExists = queries.selectProjectById(projectId).executeAsOneOrNull() != null
+                if (!projectExists) {
+                    val now = System.currentTimeMillis()
+                    queries.insertProject(
+                        id = projectId,
+                        name = "Project",
+                        slug = projectId,
+                        root_path = "",
+                        stack = null,
+                        template = null,
+                        created_at = now,
+                        updated_at = now,
+                        archived = 0,
+                        deleted_at = null,
+                        settings_json = null,
+                    )
+                }
+
+                // Verify chatId if non-null; if not found, use null to satisfy FK
+                val validChatId = if (!chatId.isNullOrBlank()) {
+                    val chatExists = queries.selectChatById(chatId).executeAsOneOrNull() != null
+                    if (chatExists) chatId else null
+                } else null
+
+                queries.insertTask(
+                    id = id,
+                    project_id = projectId,
+                    chat_id = validChatId,
+                    title = title,
+                    state = state,
+                    step = step,
+                    repair_attempts = repairAttempts,
+                    budget_json = budgetJson,
+                    started_at = startedAt,
+                    ended_at = endedAt,
+                    report_md = reportMd
+                )
+            }
+        }.onFailure {
+            android.util.Log.e("JarvisDbBridge", "Failed to save task $id", it)
+        }
     }
 
     fun updateTaskState(
@@ -457,14 +489,19 @@ class JarvisDatabaseBridge(private val context: Context) {
         endedAt: Long? = null,
         reportMd: String? = null
     ) {
-        queries.updateTaskState(
-            state = state,
-            step = step,
-            repair_attempts = repairAttempts,
-            ended_at = endedAt,
-            report_md = reportMd,
-            id = id
-        )
+        if (id.isBlank()) return
+        runCatching {
+            queries.updateTaskState(
+                state = state,
+                step = step,
+                repair_attempts = repairAttempts,
+                ended_at = endedAt,
+                report_md = reportMd,
+                id = id
+            )
+        }.onFailure {
+            android.util.Log.e("JarvisDbBridge", "Failed to update task state $id", it)
+        }
     }
 
     fun recordTaskEvidence(
@@ -474,17 +511,63 @@ class JarvisDatabaseBridge(private val context: Context) {
         summary: String,
         exitCode: Long? = null,
         payloadPath: String? = null,
-        createdAt: Long = System.currentTimeMillis()
+        createdAt: Long = System.currentTimeMillis(),
+        projectIdFallback: String? = null,
     ) {
-        queries.insertEvidence(
-            id = id,
-            task_id = taskId,
-            kind = kind,
-            summary = summary,
-            exit_code = exitCode,
-            payload_path = payloadPath,
-            created_at = createdAt
-        )
+        if (id.isBlank() || taskId.isBlank()) return
+        runCatching {
+            queries.transaction {
+                // Ensure parent task row exists so FK NEVER fails
+                val taskExists = queries.selectTaskById(taskId).executeAsOneOrNull() != null
+                if (!taskExists) {
+                    val fallbackProject = projectIdFallback?.ifBlank { null }
+                        ?: queries.selectAllProjects().executeAsList().firstOrNull()?.id
+                        ?: "default-project"
+                    val projectExists = queries.selectProjectById(fallbackProject).executeAsOneOrNull() != null
+                    if (!projectExists) {
+                        val now = System.currentTimeMillis()
+                        queries.insertProject(
+                            id = fallbackProject,
+                            name = "Project",
+                            slug = fallbackProject,
+                            root_path = "",
+                            stack = null,
+                            template = null,
+                            created_at = now,
+                            updated_at = now,
+                            archived = 0,
+                            deleted_at = null,
+                            settings_json = null,
+                        )
+                    }
+                    queries.insertTask(
+                        id = taskId,
+                        project_id = fallbackProject,
+                        chat_id = null,
+                        title = summary.take(100),
+                        state = "ACTIVE",
+                        step = 0L,
+                        repair_attempts = 0L,
+                        budget_json = null,
+                        started_at = createdAt,
+                        ended_at = null,
+                        report_md = null,
+                    )
+                }
+
+                queries.insertEvidence(
+                    id = id,
+                    task_id = taskId,
+                    kind = kind,
+                    summary = summary,
+                    exit_code = exitCode,
+                    payload_path = payloadPath,
+                    created_at = createdAt
+                )
+            }
+        }.onFailure {
+            android.util.Log.e("JarvisDbBridge", "Failed to record task evidence for task $taskId", it)
+        }
     }
 
     fun loadTasksForProject(projectId: String) =

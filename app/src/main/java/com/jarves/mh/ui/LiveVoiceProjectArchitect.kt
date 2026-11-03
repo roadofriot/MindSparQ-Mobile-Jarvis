@@ -251,10 +251,24 @@ fun LiveVoiceProjectArchitectDialog(
             return
         }
         stopSpeaking()
+        val cachedGemini = runCatching {
+            val prefs = com.jarves.mh.data.AppPreferences(context)
+            prefs.getCachedDiscoveredModels(ProviderKind.GEMINI)?.map { it.id } ?: emptyList()
+        }.getOrDefault(emptyList())
+
+        val liveCandidates = cachedGemini.filter { id ->
+            id.contains("native-audio", ignoreCase = true) ||
+            id.contains("live", ignoreCase = true)
+        }.map { id ->
+            if (id.startsWith("models/")) id else "models/$id"
+        }
+
         val session = GeminiLiveVoiceSession(
             context = context,
             apiKey = keyToUse,
             voiceName = "Charon", // Authentic FatihMakes JARVIS voice!
+            initialModel = liveCandidates.firstOrNull() ?: "models/gemini-2.5-flash-native-audio-latest",
+            candidateModels = liveCandidates,
             onTranscript = { sender, text ->
                 if (text.isNotBlank()) {
                     scope.launch(Dispatchers.Main) {
