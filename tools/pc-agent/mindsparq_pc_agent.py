@@ -16,7 +16,7 @@ import sys
 import time
 from urllib.parse import parse_qs, urlparse
 
-PORT = int(os.environ.get("MINDSPARQ_PC_AGENT_PORT", 8765))
+PORT = int(os.environ.get("MINDSPARQ_PC_AGENT_PORT", 8770))
 AUTH_TOKEN = os.environ.get("MINDSPARQ_PC_AGENT_TOKEN", "jarvis-secret-token")
 
 def get_cpu_usage():
