@@ -7,6 +7,8 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.NoiseSuppressor
 import android.util.Base64
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
@@ -53,16 +55,16 @@ class GeminiLiveVoiceSession(
         private const val SAMPLE_RATE_IN = 16000
         private const val SAMPLE_RATE_OUT = 24000
         private const val LIVE_WS_URL =
-            "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
+            "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
 
         val DEFAULT_LIVE_LADDER = listOf(
             "models/gemini-2.5-flash-native-audio-latest",
-            "models/gemini-2.0-flash-live-001",
-            "models/gemini-3.1-flash-live-preview",
             "models/gemini-2.5-flash-native-audio-preview-12-2025",
+            "models/gemini-3.1-flash-live-preview",
             "models/gemini-3.8-live",
-            "models/gemini-2.0-flash",
+            "models/gemini-2.0-flash-live-001",
             "models/gemini-2.5-flash",
+            "models/gemini-2.0-flash",
         )
     }
 
@@ -106,8 +108,11 @@ class GeminiLiveVoiceSession(
     private var webSocket: WebSocket? = null
     private var audioRecord: AudioRecord? = null
     private var audioTrack: AudioTrack? = null
+    private var echoCanceler: AcousticEchoCanceler? = null
+    private var noiseSuppressor: NoiseSuppressor? = null
     private var recordingJob: Job? = null
     private val sessionScope = CoroutineScope(Dispatchers.IO + Job())
+    private var speechStartMillis = 0L
 
     private val client = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
@@ -151,10 +156,9 @@ class GeminiLiveVoiceSession(
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d(TAG, "Gemini Live WebSocket opened successfully.")
+                Log.d(TAG, "Gemini Live WebSocket opened successfully. Awaiting setupComplete...")
                 _state.value = SessionState.CONNECTED
                 sendSetupMessage(webSocket)
-                startAudioRecording(webSocket)
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -269,28 +273,43 @@ class GeminiLiveVoiceSession(
 
     @SuppressLint("MissingPermission")
     private fun startAudioRecording(ws: WebSocket) {
+        if (audioRecord != null && audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+            return
+        }
+
         val minBuf = AudioRecord.getMinBufferSize(
             SAMPLE_RATE_IN,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
         ).coerceAtLeast(3200)
 
+        // Prefer VOICE_RECOGNITION for clean speech pickup and hardware beamforming, fallback to MIC
         val record = try {
             AudioRecord(
-                MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
                 SAMPLE_RATE_IN,
                 AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT,
                 minBuf * 2,
             )
         } catch (_: Exception) {
-            AudioRecord(
-                MediaRecorder.AudioSource.MIC,
-                SAMPLE_RATE_IN,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                minBuf * 2,
-            )
+            try {
+                AudioRecord(
+                    MediaRecorder.AudioSource.MIC,
+                    SAMPLE_RATE_IN,
+                    AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT,
+                    minBuf * 2,
+                )
+            } catch (_: Exception) {
+                AudioRecord(
+                    MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                    SAMPLE_RATE_IN,
+                    AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT,
+                    minBuf * 2,
+                )
+            }
         }
 
         if (record.state != AudioRecord.STATE_INITIALIZED) {
@@ -299,8 +318,32 @@ class GeminiLiveVoiceSession(
             return
         }
 
+        // Attach hardware Acoustic Echo Cancellation & Noise Suppression if supported
+        runCatching {
+            if (AcousticEchoCanceler.isAvailable()) {
+                echoCanceler = AcousticEchoCanceler.create(record.audioSessionId)?.apply {
+                    enabled = true
+                }
+                Log.d(TAG, "Hardware AcousticEchoCanceler attached and enabled.")
+            }
+            if (NoiseSuppressor.isAvailable()) {
+                noiseSuppressor = NoiseSuppressor.create(record.audioSessionId)?.apply {
+                    enabled = true
+                }
+                Log.d(TAG, "Hardware NoiseSuppressor attached and enabled.")
+            }
+        }
+
         audioRecord = record
-        record.startRecording()
+        try {
+            record.startRecording()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start AudioRecord recording", e)
+            onError("Failed to start recording: ${e.message}")
+            return
+        }
+
+        Log.d(TAG, "AudioRecord started recording successfully. Continuous duplex listening active!")
         _state.value = SessionState.LISTENING
 
         recordingJob = sessionScope.launch {
@@ -311,8 +354,9 @@ class GeminiLiveVoiceSession(
                     val energy = calculateRms(buffer, read)
                     _userAudioLevel.value = (energy / 3000f).coerceIn(0f, 1f)
 
-                    // User barge-in detection: if user speaks while AI is playing audio, interrupt AI instantly!
-                    if (isPlaying && energy > 1600f) {
+                    // User barge-in detection: require loud user voice (>7000 RMS) and 500ms grace period so speaker bleed does not interrupt AI
+                    val canBargeIn = isPlaying && (System.currentTimeMillis() - speechStartMillis > 500L)
+                    if (canBargeIn && energy > 7000f) {
                         Log.d(TAG, "User interrupted AI speech (energy: $energy). Flushing audio output!")
                         interruptAiSpeech(ws)
                     }
@@ -333,6 +377,8 @@ class GeminiLiveVoiceSession(
     }
 
     private fun initAudioTrack() {
+        if (audioTrack != null) return
+
         val minBuf = AudioTrack.getMinBufferSize(
             SAMPLE_RATE_OUT,
             AudioFormat.CHANNEL_OUT_MONO,
@@ -353,7 +399,7 @@ class GeminiLiveVoiceSession(
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                     .build()
             )
-            .setBufferSizeInBytes(minBuf * 2)
+            .setBufferSizeInBytes(minBuf * 4)
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
 
@@ -362,13 +408,13 @@ class GeminiLiveVoiceSession(
 
     private fun handleServerMessage(jsonText: String, ws: WebSocket) {
         runCatching {
-            Log.d(TAG, "Incoming Gemini Live server message: $jsonText")
             val root = JSONObject(jsonText)
 
-            // Setup Confirmation: trigger the authentic Charon opening greeting!
+            // Setup Confirmation: start continuous duplex recording and trigger opening greeting!
             if (root.has("setupComplete") || root.has("setup_complete")) {
-                Log.d(TAG, "Gemini Live setup complete confirmed by server.")
+                Log.d(TAG, "Gemini Live setup complete confirmed by server. Starting live mic stream...")
                 _state.value = SessionState.LISTENING
+                startAudioRecording(ws)
                 triggerInitialGreeting(ws)
                 return
             }
@@ -378,10 +424,15 @@ class GeminiLiveVoiceSession(
             val parts = modelTurn?.optJSONArray("parts")
 
             if (parts != null) {
-                _state.value = SessionState.SPEAKING
-                isPlaying = true
+                var hasAudio = false
                 for (i in 0 until parts.length()) {
                     val part = parts.optJSONObject(i) ?: continue
+
+                    // Filter out internal reasoning/thinking monologue from speech output
+                    if (part.optBoolean("thought", false)) {
+                        continue
+                    }
+
                     val inlineData = part.optJSONObject("inlineData") ?: part.optJSONObject("inline_data")
                     if (inlineData != null) {
                         val base64 = inlineData.optString("data")
@@ -389,13 +440,26 @@ class GeminiLiveVoiceSession(
                             val audioBytes = Base64.decode(base64, Base64.NO_WRAP)
                             val energy = calculateRms(audioBytes, audioBytes.size)
                             _aiAudioLevel.value = (energy / 3500f).coerceIn(0f, 1f)
+                            if (audioTrack == null) {
+                                initAudioTrack()
+                            }
                             audioTrack?.write(audioBytes, 0, audioBytes.size)
+                            hasAudio = true
                         }
                     }
+
                     val textPart = part.optString("text")
-                    if (textPart.isNotBlank()) {
+                    if (textPart.isNotBlank() && !part.optBoolean("thought", false)) {
                         onTranscript("JARVIS", textPart)
                     }
+                }
+
+                if (hasAudio) {
+                    if (!isPlaying) {
+                        speechStartMillis = System.currentTimeMillis()
+                    }
+                    _state.value = SessionState.SPEAKING
+                    isPlaying = true
                 }
             }
 
@@ -473,6 +537,16 @@ class GeminiLiveVoiceSession(
     fun stop() {
         recordingJob?.cancel()
         recordingJob = null
+
+        runCatching {
+            echoCanceler?.release()
+        }
+        echoCanceler = null
+
+        runCatching {
+            noiseSuppressor?.release()
+        }
+        noiseSuppressor = null
 
         runCatching {
             audioRecord?.stop()

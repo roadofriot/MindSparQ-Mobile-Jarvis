@@ -11,7 +11,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.speech.RecognizerIntent
-import android.speech.tts.TextToSpeech
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -174,59 +173,23 @@ fun LiveVoiceProjectArchitectDialog(
         else -> voiceState
     }
 
-    // High-performance Text-to-Speech Engine with Multilingual Audio Synthesis (for offline fallback)
-    var ttsEngine: TextToSpeech? by remember { mutableStateOf(null) }
-
     fun speak(text: String) {
-        if (isVoiceMuted || ttsEngine == null) {
-            voiceState = JarvisVoiceState.IDLE
-            return
+        if (isVoiceMuted) return
+        if (liveVoiceSession != null && liveSessionState != GeminiLiveVoiceSession.SessionState.DISCONNECTED) {
+            liveVoiceSession?.sendTextMessage(text)
         }
-        voiceState = JarvisVoiceState.SPEAKING
-        val sanitized = sanitizeForSpeech(text)
-
-        // Multi-language auto-detection: Nepali, Hindi, English
-        val hasDevanagari = sanitized.any { it in '\u0900'..'\u097F' }
-        if (hasDevanagari) {
-            val nepali = Locale("ne", "NP")
-            val hindi = Locale("hi", "IN")
-            val nepAvail = ttsEngine?.isLanguageAvailable(nepali) ?: TextToSpeech.LANG_NOT_SUPPORTED
-            if (nepAvail >= TextToSpeech.LANG_AVAILABLE) {
-                ttsEngine?.language = nepali
-            } else {
-                val hinAvail = ttsEngine?.isLanguageAvailable(hindi) ?: TextToSpeech.LANG_NOT_SUPPORTED
-                if (hinAvail >= TextToSpeech.LANG_AVAILABLE) {
-                    ttsEngine?.language = hindi
-                }
-            }
-        } else {
-            ttsEngine?.language = Locale.US
-        }
-
-        ttsEngine?.speak(sanitized, TextToSpeech.QUEUE_FLUSH, null, "jarvis_speech")
     }
 
     fun stopSpeaking() {
-        ttsEngine?.stop()
         if (voiceState == JarvisVoiceState.SPEAKING) {
             voiceState = JarvisVoiceState.IDLE
         }
     }
 
-    DisposableEffect(context) {
-        var instance: TextToSpeech? = null
-        instance = TextToSpeech(context) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                instance?.language = Locale.US
-                ttsEngine = instance
-            }
-        }
+    DisposableEffect(Unit) {
         onDispose {
             liveVoiceSession?.stop()
             liveVoiceSession = null
-            instance?.stop()
-            instance?.shutdown()
-            ttsEngine = null
         }
     }
 
@@ -351,8 +314,6 @@ fun LiveVoiceProjectArchitectDialog(
             messages.add(JarvisVoiceMessage(sender = "JARVIS", text = reply))
             if (liveVoiceSession != null && liveSessionState != GeminiLiveVoiceSession.SessionState.DISCONNECTED) {
                 liveVoiceSession?.sendTextMessage("I am scaffolding project '$nameCandidate' for the user. Acknowledge briefly as JARVIS.")
-            } else {
-                speak(reply)
             }
             onCreateProject(nameCandidate, AndroidTemplate.COMPOSE, "# $nameCandidate PRD", "# $nameCandidate TRD", "# Architecture", "# Decisions")
             return
@@ -380,7 +341,7 @@ fun LiveVoiceProjectArchitectDialog(
 
             result.onSuccess { reply ->
                 messages.add(JarvisVoiceMessage(sender = "JARVIS", text = reply))
-                speak(reply)
+                voiceState = JarvisVoiceState.IDLE
             }.onFailure { err ->
                 val rawMsg = err.localizedMessage.orEmpty()
                 val cleanErrMsg = rawMsg
@@ -393,7 +354,7 @@ fun LiveVoiceProjectArchitectDialog(
                     "I heard you, sir, but encountered an issue: $cleanErrMsg"
                 }
                 messages.add(JarvisVoiceMessage(sender = "JARVIS", text = fallback))
-                speak(fallback)
+                voiceState = JarvisVoiceState.IDLE
             }
         }
     }
