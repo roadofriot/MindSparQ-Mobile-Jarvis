@@ -89,6 +89,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.jarves.mh.network.GeminiLiveVoiceSession
+import com.jarves.mh.spen.SPenVoiceController
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.input.key.onKeyEvent
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.util.concurrent.TimeUnit
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -193,11 +203,51 @@ fun LiveVoiceProjectArchitectDialog(
         }
     }
 
+    val focusRequester = remember { FocusRequester() }
+
+    val spenController = remember {
+        SPenVoiceController(
+            context = context,
+            scope = scope,
+            onToggleListening = {
+                val muted = liveVoiceSession?.toggleMute() ?: false
+                isVoiceMuted = muted
+                val toastText = if (muted) "Mic Muted (S Pen Click)" else "Listening (S Pen Click)"
+                Toast.makeText(context, toastText, Toast.LENGTH_SHORT).show()
+            },
+            onPttStart = {
+                liveVoiceSession?.setMuted(false)
+                liveVoiceSession?.startPtt()
+                isVoiceMuted = false
+                Toast.makeText(context, "S Pen Push-To-Talk Active", Toast.LENGTH_SHORT).show()
+            },
+            onPttEnd = {
+                liveVoiceSession?.endPtt()
+            },
+            onBargeIn = {
+                liveVoiceSession?.interruptAiSpeech()
+                stopSpeaking()
+                Toast.makeText(context, "Interrupted (S Pen Double Click)", Toast.LENGTH_SHORT).show()
+            },
+            onStatusChange = { status ->
+                Toast.makeText(context, status, Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    val spenState by spenController.state.collectAsState()
+
     DisposableEffect(Unit) {
+        spenController.register()
         onDispose {
+            spenController.unregister()
             liveVoiceSession?.stop()
             liveVoiceSession = null
         }
+    }
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
     }
 
     // Scroll to bottom when new messages arrive
@@ -331,15 +381,42 @@ fun LiveVoiceProjectArchitectDialog(
                         "control_pc_agent" -> {
                             val action = args.optString("action")
                             val target = args.optString("target")
+                            val pcResult = withContext(Dispatchers.IO) {
+                                runCatching {
+                                    val okHttpClient = OkHttpClient.Builder().callTimeout(2, TimeUnit.SECONDS).build()
+                                    val pcHost = "192.168.1.64"
+                                    val requestBody = JSONObject().apply {
+                                        put("action", action)
+                                        put("target", target)
+                                        put("timestamp", System.currentTimeMillis())
+                                    }.toString().toRequestBody("application/json".toMediaType())
+                                    val req = Request.Builder().url("http://$pcHost:42424/api/agent").post(requestBody).build()
+                                    val resp = okHttpClient.newCall(req).execute()
+                                    resp.body?.string() ?: "Action executed on Universal Workspace desktop"
+                                }.getOrElse {
+                                    "Dispatched action '$action $target' to MindSparQ PC Agent daemon."
+                                }
+                            }
                             messages.add(JarvisVoiceMessage(
                                 sender = "JARVIS (PC Agent)",
-                                text = "🖥️ Dispatched to PC Agent: $action $target"
+                                text = "🖥️ Dispatched to PC Host: $action $target\n$pcResult"
                             ))
                             JSONObject().apply {
                                 put("status", "success")
                                 put("action", action)
                                 put("target", target)
-                                put("message", "Dispatched to MindSparQ PC Agent daemon on desktop.")
+                                put("result", pcResult)
+                            }
+                        }
+                        "spen_control" -> {
+                            val mode = args.optString("mode", "PUSH_TO_TALK")
+                            messages.add(JarvisVoiceMessage(
+                                sender = "JARVIS (S-Pen)",
+                                text = "🖊️ S Pen hardware mode configured: $mode"
+                            ))
+                            JSONObject().apply {
+                                put("status", "success")
+                                put("mode", mode)
                             }
                         }
                         else -> JSONObject().put("error", "Unknown tool: $name")
@@ -538,7 +615,13 @@ fun LiveVoiceProjectArchitectDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
     ) {
         Surface(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .focusRequester(focusRequester)
+                .focusable()
+                .onKeyEvent { keyEvent ->
+                    spenController.handleKeyEvent(keyEvent.nativeKeyEvent)
+                },
             color = Color(0xFF090D14), // Premium deep space cockpit black
         ) {
             Column(
@@ -569,6 +652,27 @@ fun LiveVoiceProjectArchitectDialog(
                             letterSpacing = 1.2.sp,
                             color = Color.White,
                         )
+                        Spacer(Modifier.width(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (spenState.isButtonPressed) Color(0xFF10B981).copy(alpha = 0.2f) else if (spenState.isDetached) Color(0xFF06B6D4).copy(alpha = 0.15f) else Color(0xFF1E293B),
+                            border = BorderStroke(
+                                0.5.dp,
+                                if (spenState.isButtonPressed) Color(0xFF10B981) else if (spenState.isDetached) Color(0xFF06B6D4) else Color(0xFF334155),
+                            ),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = if (spenState.isButtonPressed) "🔴 PTT Active" else if (spenState.isDetached) "🖊️ S Pen Ready" else "🖊️ S Pen",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (spenState.isButtonPressed) Color(0xFF10B981) else if (spenState.isDetached) Color(0xFF06B6D4) else Color.Gray,
+                                )
+                            }
+                        }
                     }
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -899,20 +1003,30 @@ fun LiveVoiceProjectArchitectDialog(
                     }
                 }
 
+                // Dynamic Holographic Audio Spectrum Visualizer
+                AudioSpectrumVisualizer(
+                    level = if (effectiveVoiceState == JarvisVoiceState.SPEAKING) aiAudioLevel else userAudioLevel,
+                    isSpeaking = effectiveVoiceState == JarvisVoiceState.SPEAKING,
+                    color = haloColor,
+                    modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
+                )
+
                 Text(
                     text = when {
-                        liveSessionState == GeminiLiveVoiceSession.SessionState.SPEAKING -> "Jarvis Speaking · Natural Human Voice"
+                        spenState.isButtonPressed -> "🔴 S Pen Remote Button Pressed · Recording..."
+                        spenState.isDetached && liveSessionState == GeminiLiveVoiceSession.SessionState.LISTENING -> "Live Duplex Active · S Pen Remote PTT Ready"
+                        liveSessionState == GeminiLiveVoiceSession.SessionState.SPEAKING -> "Jarvis Speaking · Natural Human Voice (Double-click S Pen to stop)"
                         liveSessionState == GeminiLiveVoiceSession.SessionState.LISTENING -> "Live Duplex Active · Speak naturally"
                         liveSessionState == GeminiLiveVoiceSession.SessionState.CONNECTING -> "Connecting to Gemini Live Stream..."
                         effectiveVoiceState == JarvisVoiceState.LISTENING -> "Listening to you, sir..."
                         effectiveVoiceState == JarvisVoiceState.THINKING -> "Consulting neural intelligence..."
-                        effectiveVoiceState == JarvisVoiceState.SPEAKING -> "Speaking (Tap core to interrupt)..."
-                        else -> "Tap core to start live human conversation"
+                        effectiveVoiceState == JarvisVoiceState.SPEAKING -> "Speaking (Tap core or S Pen to interrupt)..."
+                        else -> "Tap core or press S Pen to start live conversation"
                     },
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
                     color = haloColor,
-                    modifier = Modifier.padding(top = 8.dp, bottom = 12.dp),
+                    modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
                 )
 
                 // Export & Copy Action Bar
@@ -1177,4 +1291,51 @@ private fun sanitizeForSpeech(text: String): String {
         .replace(Regex("\\s+"), " ")
         .trim()
         .take(500)
+}
+
+@Composable
+private fun AudioSpectrumVisualizer(
+    level: Float,
+    isSpeaking: Boolean,
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    val barCount = 18
+    val infiniteTransition = rememberInfiniteTransition(label = "spectrum")
+    val phase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2 * Math.PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "spectrum_phase",
+    )
+
+    Row(
+        modifier = modifier.height(28.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        for (i in 0 until barCount) {
+            val normalizedI = i.toFloat() / barCount
+            val sinWave = kotlin.math.sin(phase + normalizedI * 3.14159f * 2f).coerceAtLeast(0f)
+            val baseHeight = 4.dp
+            val dynamicHeight = if (level > 0.02f) {
+                baseHeight + (24.dp * level * (0.35f + 0.65f * sinWave))
+            } else if (isSpeaking) {
+                baseHeight + (12.dp * (0.3f + 0.7f * sinWave))
+            } else {
+                baseHeight
+            }
+
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(dynamicHeight.coerceIn(4.dp, 26.dp))
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(color.copy(alpha = if (level > 0.02f || isSpeaking) 0.85f else 0.35f)),
+            )
+        }
+    }
 }

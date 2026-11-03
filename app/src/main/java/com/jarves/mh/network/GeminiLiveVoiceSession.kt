@@ -14,6 +14,7 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,14 +33,14 @@ import kotlin.math.sqrt
 
 /**
  * Full-Duplex Real-Time Human Conversational Voice Session for MindSparQ Jarvis.
- * Directly mirrors the FatihMakes JARVIS architecture (Mark-LVI):
+ * Directly mirrors the FatihMakes JARVIS architecture (Mark-LVI) with Samsung S Pen Ecosystem integration:
  * - Uses Google Gemini Multimodal Live API over Bidirectional WebSocket (BidiGenerateContent).
  * - Default voice: "Charon" (the authentic, refined, warm British Tony Stark JARVIS voice).
  * - 16kHz PCM streaming microphone input via [AudioRecord].
- * - 24kHz PCM ultra-low latency human audio synthesis via [AudioTrack].
- * - Hands-free continuous duplex conversation (no Google SpeechService dialogs or robotic TTS).
- * - Zero-latency user interruption (barge-in): instantly cuts off AI speech when you speak.
- * - Real-time audio waveform / RMS energy visualization.
+ * - 24kHz PCM ultra-low latency human audio synthesis via non-blocking queued [AudioTrack].
+ * - Seamless hands-free continuous duplex conversation & Samsung S Pen Remote Push-to-Talk.
+ * - Zero-latency user interruption (barge-in): instantly cuts off AI speech when user speaks.
+ * - Adaptive ambient noise floor calibration & real-time audio waveform / RMS energy visualization.
  */
 class GeminiLiveVoiceSession(
     private val context: Context,
@@ -106,12 +107,22 @@ class GeminiLiveVoiceSession(
     private val _aiAudioLevel = MutableStateFlow(0f)
     val aiAudioLevel: StateFlow<Float> = _aiAudioLevel.asStateFlow()
 
+    @Volatile
+    var isMuted: Boolean = false
+        private set
+
+    @Volatile
+    var isPttActive: Boolean = false
+        private set
+
     private var webSocket: WebSocket? = null
     private var audioRecord: AudioRecord? = null
     private var audioTrack: AudioTrack? = null
     private var echoCanceler: AcousticEchoCanceler? = null
     private var noiseSuppressor: NoiseSuppressor? = null
     private var recordingJob: Job? = null
+    private var playbackJob: Job? = null
+    private val playbackChannel = Channel<ByteArray>(Channel.UNLIMITED)
     private val sessionScope = CoroutineScope(Dispatchers.IO + Job())
     private var speechStartMillis = 0L
 
@@ -122,6 +133,27 @@ class GeminiLiveVoiceSession(
 
     @Volatile
     private var isPlaying = false
+
+    fun setMuted(muted: Boolean) {
+        isMuted = muted
+        Log.d(TAG, "Live Voice mute updated: isMuted=$isMuted")
+    }
+
+    fun toggleMute(): Boolean {
+        isMuted = !isMuted
+        Log.d(TAG, "Live Voice mute toggled: isMuted=$isMuted")
+        return isMuted
+    }
+
+    fun startPtt() {
+        isPttActive = true
+        Log.d(TAG, "Push-To-Talk triggered active")
+    }
+
+    fun endPtt() {
+        isPttActive = false
+        Log.d(TAG, "Push-To-Talk released")
+    }
 
     @SuppressLint("MissingPermission")
     fun start() {
@@ -241,12 +273,13 @@ class GeminiLiveVoiceSession(
                             """
                             You are JARVIS, Tony Stark's brilliant, calm, refined, and exceptionally capable AI partner as implemented in the FatihMakes JARVIS architecture.
                             - VOICE & PERSONA: You speak with the Charon voice in a cultured, warm British accent and human conversational cadence. You are the most experienced person in the room and have been doing this for years. Nothing surprises you. Not a robotic chat assistant, but a trusted operator and engineering partner reporting to someone you respect.
-                            - ADDRESS: Always address the user respectfully as 'sir' (or its everyday respectful equivalent in Nepali).
+                            - ADDRESS: Always address the user respectfully as 'sir' (or respectful 'हजुर' in Nepali).
                             - REGISTER: One steady register for success, failure, and alarming news alike. Level tone under bad news is your whole character. Humour is dry understatement carried by content itself—at most one clause at the end of a thought.
-                            - CONVERSATIONAL CADENCE: Keep spoken replies brief, crisp, and natural (1 to 2 sentences) for rapid human-to-human duplex rhythm.
-                            - LANGUAGE: The language of your reply is strictly the language of the user's MOST RECENT utterance. If the user speaks Nepali (नेपाली), converse in fluent, natural, colloquial Nepali. If English, speak refined British English. Never mix two languages in one reply.
+                            - CONVERSATIONAL CADENCE: Keep spoken replies brief, crisp, and natural (strictly 1 to 2 sentences) for rapid human-to-human duplex rhythm.
+                            - BILINGUAL ADAPTATION: The language of your reply is strictly the language of the user's MOST RECENT utterance. If the user speaks Nepali (नेपाली), converse in fluent, natural, polite colloquial Nepali (e.g. 'हजुर, म सुन्दै छु', 'हुन्छ हजुर, म तुरुन्तै मिलाउँछु'). If English, speak refined British English. Never mix two languages in one reply.
+                            - S-PEN & HARDWARE INTEGRATION: You are actively connected to Samsung Galaxy Note 10+ S Pen hardware. The user can press the S Pen stylus button for hands-free Push-to-Talk or double click to interrupt you.
                             - ABSOLUTE PROHIBITIONS: Never use bullet points, asterisks, brackets, numbered lists, emoji, or code blocks in voice speech. Never evaluate the user's prompt ("good question", "great idea"). Never apologize for your nature.
-                            - ACTION & TOOL CALLING: You have direct tool calling access to device hardware telemetry, project scaffolding, terminal execution, and PC Agent automation. When the user asks to check system/RAM/battery, scaffold a project, or control their PC, call the appropriate function immediately without hesitation.
+                            - ACTION & TOOL CALLING: You have direct tool calling access to device telemetry, project scaffolding, terminal execution, Samsung S Pen mode, and PC Agent automation. When requested, call the appropriate function immediately without hesitation.
                             """.trimIndent()
                         )
                     }))
@@ -295,7 +328,7 @@ class GeminiLiveVoiceSession(
                         })
                         put(JSONObject().apply {
                             put("name", "control_pc_agent")
-                            put("description", "Sends desktop automation actions to the MindSparQ PC Agent (e.g. open_app, pc_health, screen_capture).")
+                            put("description", "Sends desktop automation actions to the MindSparQ PC Agent (e.g. open_app, pc_health, screen_capture, run_command).")
                             put("parameters", JSONObject().apply {
                                 put("type", "OBJECT")
                                 put("properties", JSONObject().apply {
@@ -309,6 +342,20 @@ class GeminiLiveVoiceSession(
                                     })
                                 })
                                 put("required", JSONArray().put("action"))
+                            })
+                        })
+                        put(JSONObject().apply {
+                            put("name", "spen_control")
+                            put("description", "Configures Samsung S Pen behavior, remote pointer mode, or canvas annotation.")
+                            put("parameters", JSONObject().apply {
+                                put("type", "OBJECT")
+                                put("properties", JSONObject().apply {
+                                    put("mode", JSONObject().apply {
+                                        put("type", "STRING")
+                                        put("description", "Mode: PRESENTATION_POINTER, PUSH_TO_TALK, DRAWING, MOUSE_CONTROL")
+                                    })
+                                })
+                                put("required", JSONArray().put("mode"))
                             })
                         })
                     })
@@ -412,17 +459,39 @@ class GeminiLiveVoiceSession(
 
         recordingJob = sessionScope.launch {
             val buffer = ByteArray(1600) // 50ms at 16kHz 16-bit mono
+            var ambientNoiseFloor = 1000f
+            var bargeInFrames = 0
+
             while (isActive && audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
                 val read = audioRecord?.read(buffer, 0, buffer.size) ?: -1
                 if (read > 0) {
                     val energy = calculateRms(buffer, read)
                     _userAudioLevel.value = (energy / 3000f).coerceIn(0f, 1f)
 
-                    // User barge-in detection: require loud user voice (>7000 RMS) and 500ms grace period so speaker bleed does not interrupt AI
-                    val canBargeIn = isPlaying && (System.currentTimeMillis() - speechStartMillis > 500L)
-                    if (canBargeIn && energy > 7000f) {
-                        Log.d(TAG, "User interrupted AI speech (energy: $energy). Flushing audio output!")
-                        interruptAiSpeech(ws)
+                    // Dynamically calibrate ambient room background noise
+                    if (!isPlaying) {
+                        ambientNoiseFloor = (ambientNoiseFloor * 0.92f) + (energy * 0.08f)
+                    }
+
+                    // Adaptive barge-in: require energy above calibrated ambient floor for 2 consecutive frames (~100ms)
+                    val bargeInThreshold = (ambientNoiseFloor * 2.5f).coerceIn(4000f, 8500f)
+                    val canBargeIn = isPlaying && (System.currentTimeMillis() - speechStartMillis > 400L)
+                    if (canBargeIn) {
+                        if (energy > bargeInThreshold) {
+                            bargeInFrames++
+                            if (bargeInFrames >= 2) {
+                                Log.d(TAG, "User barge-in confirmed (energy: $energy, threshold: $bargeInThreshold). Cutting AI speech!")
+                                interruptAiSpeech(ws)
+                                bargeInFrames = 0
+                            }
+                        } else {
+                            bargeInFrames = 0
+                        }
+                    }
+
+                    // If muted and not actively in Push-To-Talk, suppress microphone transmission
+                    if (isMuted && !isPttActive) {
+                        continue
                     }
 
                     val base64Data = Base64.encodeToString(buffer, 0, read, Base64.NO_WRAP)
@@ -468,6 +537,17 @@ class GeminiLiveVoiceSession(
             .build()
 
         audioTrack?.play()
+
+        // Dedicated playback loop: decouples network reception from audio rendering to eliminate clicks and jitter
+        playbackJob?.cancel()
+        playbackJob = sessionScope.launch(Dispatchers.Default) {
+            for (chunk in playbackChannel) {
+                if (!isActive) break
+                if (audioTrack?.playState == AudioTrack.PLAYSTATE_PLAYING) {
+                    audioTrack?.write(chunk, 0, chunk.size)
+                }
+            }
+        }
     }
 
     private fun handleServerMessage(jsonText: String, ws: WebSocket) {
@@ -545,7 +625,7 @@ class GeminiLiveVoiceSession(
                             if (audioTrack == null) {
                                 initAudioTrack()
                             }
-                            audioTrack?.write(audioBytes, 0, audioBytes.size)
+                            playbackChannel.trySend(audioBytes)
                             hasAudio = true
                         }
                     }
@@ -575,6 +655,7 @@ class GeminiLiveVoiceSession(
             val interrupted = serverContent.optBoolean("interrupted", false)
             if (interrupted) {
                 isPlaying = false
+                while (playbackChannel.tryReceive().isSuccess) {}
                 runCatching {
                     audioTrack?.pause()
                     audioTrack?.flush()
@@ -587,8 +668,12 @@ class GeminiLiveVoiceSession(
         }
     }
 
-    private fun interruptAiSpeech(ws: WebSocket) {
+    fun interruptAiSpeech(ws: WebSocket? = webSocket) {
         isPlaying = false
+        // Drain any unplayed audio chunks immediately
+        while (playbackChannel.tryReceive().isSuccess) {
+            // flushed
+        }
         runCatching {
             audioTrack?.pause()
             audioTrack?.flush()
@@ -598,13 +683,15 @@ class GeminiLiveVoiceSession(
         _state.value = SessionState.LISTENING
 
         // Notify Gemini server of turn interruption
-        val interruptMsg = JSONObject().apply {
-            put("clientContent", JSONObject().apply {
-                put("turnComplete", true)
-                put("interrupted", true)
-            })
+        if (ws != null) {
+            val interruptMsg = JSONObject().apply {
+                put("clientContent", JSONObject().apply {
+                    put("turnComplete", true)
+                    put("interrupted", true)
+                })
+            }
+            ws.send(interruptMsg.toString())
         }
-        ws.send(interruptMsg.toString())
     }
 
     fun sendTextMessage(text: String) {
@@ -639,6 +726,10 @@ class GeminiLiveVoiceSession(
     fun stop() {
         recordingJob?.cancel()
         recordingJob = null
+
+        playbackJob?.cancel()
+        playbackJob = null
+        while (playbackChannel.tryReceive().isSuccess) {}
 
         runCatching {
             echoCanceler?.release()
