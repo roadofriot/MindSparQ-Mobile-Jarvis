@@ -26,6 +26,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import okio.ByteString
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
@@ -195,7 +196,14 @@ class GeminiLiveVoiceSession(
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                Log.d(TAG, "Gemini Live text frame received (${text.length} chars)")
                 handleServerMessage(text, webSocket)
+            }
+
+            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                val utf8Text = bytes.utf8()
+                Log.d(TAG, "Gemini Live binary frame received (${bytes.size} bytes)")
+                handleServerMessage(utf8Text, webSocket)
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
