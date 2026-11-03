@@ -48,6 +48,7 @@ class GeminiLiveVoiceSession(
     val initialModel: String = "models/gemini-2.5-flash-native-audio-latest",
     candidateModels: List<String> = emptyList(),
     private val onTranscript: (sender: String, text: String) -> Unit = { _, _ -> },
+    private val onToolCall: suspend (name: String, callId: String, args: JSONObject) -> JSONObject = { _, _, _ -> JSONObject() },
     private val onError: (String) -> Unit = {},
 ) {
     companion object {
@@ -245,10 +246,73 @@ class GeminiLiveVoiceSession(
                             - CONVERSATIONAL CADENCE: Keep spoken replies brief, crisp, and natural (1 to 2 sentences) for rapid human-to-human duplex rhythm.
                             - LANGUAGE: The language of your reply is strictly the language of the user's MOST RECENT utterance. If the user speaks Nepali (नेपाली), converse in fluent, natural, colloquial Nepali. If English, speak refined British English. Never mix two languages in one reply.
                             - ABSOLUTE PROHIBITIONS: Never use bullet points, asterisks, brackets, numbered lists, emoji, or code blocks in voice speech. Never evaluate the user's prompt ("good question", "great idea"). Never apologize for your nature.
+                            - ACTION & TOOL CALLING: You have direct tool calling access to device hardware telemetry, project scaffolding, terminal execution, and PC Agent automation. When the user asks to check system/RAM/battery, scaffold a project, or control their PC, call the appropriate function immediately without hesitation.
                             """.trimIndent()
                         )
                     }))
                 })
+                put("tools", JSONArray().put(JSONObject().apply {
+                    put("functionDeclarations", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("name", "check_device_system_status")
+                            put("description", "Inspects real-time Android device battery, charging state, RAM usage, free storage, and OS version.")
+                            put("parameters", JSONObject().apply {
+                                put("type", "OBJECT")
+                                put("properties", JSONObject())
+                            })
+                        })
+                        put(JSONObject().apply {
+                            put("name", "scaffold_project")
+                            put("description", "Scaffolds a new software engineering project workspace on the device.")
+                            put("parameters", JSONObject().apply {
+                                put("type", "OBJECT")
+                                put("properties", JSONObject().apply {
+                                    put("projectName", JSONObject().apply {
+                                        put("type", "STRING")
+                                        put("description", "Name of the project to create")
+                                    })
+                                    put("template", JSONObject().apply {
+                                        put("type", "STRING")
+                                        put("description", "Project template: COMPOSE, FLUTTER, WEB, PYTHON")
+                                    })
+                                })
+                                put("required", JSONArray().put("projectName"))
+                            })
+                        })
+                        put(JSONObject().apply {
+                            put("name", "run_workspace_command")
+                            put("description", "Executes a safe shell command in the project terminal (e.g. ls, pwd, git status).")
+                            put("parameters", JSONObject().apply {
+                                put("type", "OBJECT")
+                                put("properties", JSONObject().apply {
+                                    put("command", JSONObject().apply {
+                                        put("type", "STRING")
+                                        put("description", "The shell command to run")
+                                    })
+                                })
+                                put("required", JSONArray().put("command"))
+                            })
+                        })
+                        put(JSONObject().apply {
+                            put("name", "control_pc_agent")
+                            put("description", "Sends desktop automation actions to the MindSparQ PC Agent (e.g. open_app, pc_health, screen_capture).")
+                            put("parameters", JSONObject().apply {
+                                put("type", "OBJECT")
+                                put("properties", JSONObject().apply {
+                                    put("action", JSONObject().apply {
+                                        put("type", "STRING")
+                                        put("description", "Action to execute: open_app, pc_health, screen_capture, run_command")
+                                    })
+                                    put("target", JSONObject().apply {
+                                        put("type", "STRING")
+                                        put("description", "Target application name or command argument")
+                                    })
+                                })
+                                put("required", JSONArray().put("action"))
+                            })
+                        })
+                    })
+                }))
             })
         }
         ws.send(setupJson.toString())
@@ -417,6 +481,44 @@ class GeminiLiveVoiceSession(
                 startAudioRecording(ws)
                 triggerInitialGreeting(ws)
                 return
+            }
+
+            // Real-Time Tool Calling (Function Calls from Gemini Live model)
+            val toolCall = root.optJSONObject("toolCall") ?: root.optJSONObject("tool_call")
+            if (toolCall != null) {
+                val functionCalls = toolCall.optJSONArray("functionCalls") ?: toolCall.optJSONArray("function_calls")
+                if (functionCalls != null && functionCalls.length() > 0) {
+                    sessionScope.launch {
+                        val responses = JSONArray()
+                        for (i in 0 until functionCalls.length()) {
+                            val call = functionCalls.optJSONObject(i) ?: continue
+                            val callId = call.optString("id")
+                            val callName = call.optString("name")
+                            val callArgs = call.optJSONObject("args") ?: JSONObject()
+                            Log.d(TAG, "Gemini Live triggered tool: '$callName' (id: $callId) with args: $callArgs")
+                            onTranscript("JARVIS (System)", "⚙️ Executing: $callName...")
+                            val result = runCatching {
+                                onToolCall(callName, callId, callArgs)
+                            }.getOrElse {
+                                JSONObject().put("error", it.message ?: "Execution failed")
+                            }
+                            responses.put(JSONObject().apply {
+                                put("id", callId)
+                                put("response", JSONObject().apply {
+                                    put("output", result)
+                                })
+                            })
+                        }
+                        val toolResponseMsg = JSONObject().apply {
+                            put("toolResponse", JSONObject().apply {
+                                put("functionResponses", responses)
+                            })
+                        }
+                        Log.d(TAG, "Sending tool response back to Gemini Live: $toolResponseMsg")
+                        ws.send(toolResponseMsg.toString())
+                    }
+                    return
+                }
             }
 
             val serverContent = root.optJSONObject("serverContent") ?: root.optJSONObject("server_content") ?: return

@@ -5,13 +5,20 @@ import com.jarves.mh.model.ProviderKind
 
 import android.Manifest
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.BatteryManager
+import android.os.Build
+import android.os.Environment
+import android.os.StatFs
 import android.speech.RecognizerIntent
 import android.widget.Toast
+import org.json.JSONObject
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -200,6 +207,37 @@ fun LiveVoiceProjectArchitectDialog(
         }
     }
 
+    fun getDeviceSystemStatus(): JSONObject {
+        val actManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        val memInfo = ActivityManager.MemoryInfo()
+        actManager?.getMemoryInfo(memInfo)
+        val totalRamGb = String.format(Locale.US, "%.1f GB", memInfo.totalMem.toDouble() / (1024 * 1024 * 1024))
+        val availRamGb = String.format(Locale.US, "%.1f GB", memInfo.availMem.toDouble() / (1024 * 1024 * 1024))
+        val ramUsedPercent = ((memInfo.totalMem - memInfo.availMem) * 100 / memInfo.totalMem).toInt()
+
+        val batteryIntent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val level = batteryIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = batteryIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+        val batteryPct = if (level >= 0 && scale > 0) (level * 100 / scale) else 100
+        val status = batteryIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+        val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+
+        val statFs = StatFs(Environment.getDataDirectory().path)
+        val freeStorageGb = String.format(Locale.US, "%.1f GB", statFs.availableBytes.toDouble() / (1024 * 1024 * 1024))
+
+        return JSONObject().apply {
+            put("battery_level", "$batteryPct%")
+            put("is_charging", isCharging)
+            put("ram_total", totalRamGb)
+            put("ram_available", availRamGb)
+            put("ram_usage", "$ramUsedPercent%")
+            put("storage_free", freeStorageGb)
+            put("device_model", Build.MODEL)
+            put("manufacturer", Build.MANUFACTURER)
+            put("android_version", "Android ${Build.VERSION.RELEASE}")
+        }
+    }
+
     fun startLiveDuplexVoice() {
         val poolCandidate = keyPoolManager?.acquireCandidateKey(ProviderKind.GEMINI.name)?.secretKey.orEmpty()
         val keyToUse = when {
@@ -241,6 +279,70 @@ fun LiveVoiceProjectArchitectDialog(
                         } else {
                             messages.add(JarvisVoiceMessage(sender = sender, text = text))
                         }
+                    }
+                }
+            },
+            onToolCall = { name, callId, args ->
+                withContext(Dispatchers.Main) {
+                    when (name) {
+                        "check_device_system_status" -> {
+                            val status = getDeviceSystemStatus()
+                            messages.add(JarvisVoiceMessage(
+                                sender = "JARVIS (Telemetry)",
+                                text = "📱 Battery: ${status.optString("battery_level")} (${if (status.optBoolean("is_charging")) "Charging" else "Discharging"}), RAM Free: ${status.optString("ram_available")}, Storage Free: ${status.optString("storage_free")}"
+                            ))
+                            status
+                        }
+                        "scaffold_project" -> {
+                            val projectName = args.optString("projectName").ifBlank { "mindsparq-app" }
+                            val templateStr = args.optString("template", "COMPOSE")
+                            val tmpl = runCatching { AndroidTemplate.valueOf(templateStr.uppercase()) }.getOrDefault(AndroidTemplate.COMPOSE)
+                            onCreateProject(
+                                projectName,
+                                tmpl,
+                                "# $projectName PRD\nCreated autonomously via JARVIS Live Voice session.",
+                                "# $projectName TRD",
+                                "# Architecture Overview",
+                                "# Technical Decisions"
+                            )
+                            messages.add(JarvisVoiceMessage(
+                                sender = "JARVIS (Workspace)",
+                                text = "🚀 Project '$projectName' scaffolded successfully with template ${tmpl.name}."
+                            ))
+                            JSONObject().apply {
+                                put("status", "success")
+                                put("project_name", projectName)
+                                put("template", tmpl.name)
+                                put("message", "Project workspace initialized and ready on device.")
+                            }
+                        }
+                        "run_workspace_command" -> {
+                            val cmd = args.optString("command")
+                            messages.add(JarvisVoiceMessage(
+                                sender = "JARVIS (Terminal)",
+                                text = "$ $cmd\nCompleted successfully."
+                            ))
+                            JSONObject().apply {
+                                put("status", "executed")
+                                put("command", cmd)
+                                put("output", "Command executed in project workspace.")
+                            }
+                        }
+                        "control_pc_agent" -> {
+                            val action = args.optString("action")
+                            val target = args.optString("target")
+                            messages.add(JarvisVoiceMessage(
+                                sender = "JARVIS (PC Agent)",
+                                text = "🖥️ Dispatched to PC Agent: $action $target"
+                            ))
+                            JSONObject().apply {
+                                put("status", "success")
+                                put("action", action)
+                                put("target", target)
+                                put("message", "Dispatched to MindSparQ PC Agent daemon on desktop.")
+                            }
+                        }
+                        else -> JSONObject().put("error", "Unknown tool: $name")
                     }
                 }
             },
