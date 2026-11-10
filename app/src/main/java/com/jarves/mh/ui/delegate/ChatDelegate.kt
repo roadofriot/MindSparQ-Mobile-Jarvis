@@ -47,6 +47,7 @@ import com.jarves.mh.model.AndroidTemplate
 import com.jarves.mh.model.ProjectChat
 import com.jarves.mh.model.ProviderKind
 import com.jarves.mh.model.ProviderProfile
+import com.jarves.mh.model.ProviderProtocol
 import com.jarves.mh.model.RuntimeEvent
 import com.jarves.mh.model.ToolRequest
 import com.jarves.mh.model.WorkspaceEntry
@@ -62,6 +63,10 @@ import com.jarves.mh.network.GitHubTokenPoll
 import com.jarves.mh.network.GitHubRepository
 import com.jarves.mh.runtime.ClaudeRuntimeBridge
 import com.jarves.mh.runtime.DshRuntimeBridge
+import com.jarves.mh.runtime.AutonomousWorkflowCoordinator
+import com.jarves.mh.runtime.AutonomousWorkflowResult
+import com.jarves.mh.runtime.ReviewVerdict
+import com.jarves.mh.runtime.RuntimeBridge
 import com.jarves.mh.runtime.AgentRegistry
 import com.jarves.mh.runtime.AgentUpdateInfo
 import com.jarves.mh.runtime.AntigravityAuthController
@@ -162,6 +167,8 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -171,18 +178,36 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+
+private const val AUTONOMOUS_IMPLEMENTATION_OVERALL_LIMIT_MS = 30L * 60 * 1000 // 30 minutes
+private const val AUTONOMOUS_IMPLEMENTATION_INACTIVITY_LIMIT_MS = 5L * 60 * 1000 // 5 minutes without progress
+private const val AUTONOMOUS_POLL_INTERVAL_MS = 10_000L // 10 seconds between deadline checks
+private const val MAX_REVIEW_DIFF_CHARS = 24_000
 
 class ChatDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
 
     internal var activeRuntimeRequest: RuntimeRetryRequest? = null
     @Volatile internal var activeTaskOrchestrator: TaskOrchestrator? = null
+    @Volatile private var autonomousWorkflowJob: Job? = null
+    @Volatile private var autonomousWorkflowRuntime: RuntimeBridge? = null
+    @Volatile private var autonomousWorkflowPhase: AutonomousPhase = AutonomousPhase.IDLE
+    @Volatile private var autonomousImplementerSessionId: String? = null
+    @Volatile private var autonomousImplementationResult: CompletableDeferred<Boolean>? = null
+    /** Last millis at which the autonomous implementer session emitted any runtime event. Used for inactivity timeout. */
+    @Volatile private var lastAutonomousActivityAt: Long = 0L
+    private val autonomousWorkflowCoordinator = AutonomousWorkflowCoordinator()
     internal val pendingFollowUps = ArrayDeque<QueuedFollowUp>()
     @Volatile internal var steeringToFollowUp: Boolean = false
     internal val failedApiKeyIds = mutableSetOf<String>()
     internal val transcriptWrites = Channel<TranscriptWrite>(Channel.UNLIMITED)
+
+    private enum class AutonomousPhase { IDLE, PLANNING, IMPLEMENTING, REVIEWING }
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
@@ -374,6 +399,10 @@ class ChatDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
     }
 
     fun sendPrompt(prompt: String) {
+        if (autonomousWorkflowJob?.isActive == true && !_state.value.isRunning) {
+            _state.update { it.copy(toastMessage = "The previous autonomous workflow is still stopping. Please wait.") }
+            return
+        }
         val project = state.value.activeProject ?: return
         if (_state.value.agentKind == AgentKind.ANTIGRAVITY &&
             _state.value.antigravityAuth.status != AntigravityAuthStatus.SIGNED_IN) {
@@ -401,7 +430,37 @@ class ChatDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
             _state.update { it.copy(toastMessage = str(R.string.an_wait_terminal_then_send)) }
             return
         }
+        if (_state.value.autonomousWorkflowEnabled) {
+            autonomousWorkflowConfigurationError()?.let { message ->
+                _state.update { it.copy(toastMessage = message) }
+                return
+            }
+        }
         startPrompt(project, prompt, attachments)
+    }
+
+    private fun autonomousWorkflowConfigurationError(): String? {
+        val current = _state.value
+        if (!installer.isAgentInstalled(current.agentKind)) {
+            return "Install ${current.agentKind.title} in Agent settings to use the autonomous workflow."
+        }
+        val provider = current.provider
+        if (provider.kind.protocol == ProviderProtocol.CLAUDE_LOGIN && current.agentKind != AgentKind.CLAUDE_CODE) {
+            return "Planning and review need an API-key or open model provider. Select an API or local provider instead of Claude subscription login."
+        }
+        if (!isDeviceOnline() && provider.kind != ProviderKind.OLLAMA && provider.kind != ProviderKind.CUSTOM) {
+            return "The autonomous workflow needs a network connection or local model for planning and review."
+        }
+        val key = vault.get(provider.kind.name).orEmpty()
+            .ifBlank { if (current.agentKind == AgentKind.ANTIGRAVITY) vault.get(ProviderKind.GEMINI.name).orEmpty() else "" }
+            .ifBlank { localServerPlaceholderKey(provider) }
+        if (key.isBlank() && current.agentKind != AgentKind.ANTIGRAVITY && provider.kind != ProviderKind.OLLAMA && provider.kind != ProviderKind.CUSTOM) {
+            return "Save an API key for ${provider.kind.title} before starting the autonomous workflow."
+        }
+        if (provider.resolvedBaseUrl.isBlank() && current.agentKind != AgentKind.ANTIGRAVITY) {
+            return "Select a provider URL and model before starting the autonomous workflow."
+        }
+        return null
     }
 
     private fun queueFollowUp(project: Project, prompt: String, attachments: List<ChatAttachment>) {
@@ -521,7 +580,11 @@ class ChatDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
         }
         failedApiKeyIds.clear()
         val isOnline = isDeviceOnline()
-        val effectiveProvider = if (!isOnline && _state.value.provider.kind != ProviderKind.OLLAMA) {
+        val effectiveProvider = if (
+            !isOnline &&
+            !_state.value.autonomousWorkflowEnabled &&
+            _state.value.provider.kind != ProviderKind.OLLAMA
+        ) {
             val offlineProfile = preferences.loadProvider(vault, state.value.agentKind).copy(
                 kind = ProviderKind.OLLAMA,
                 model = "qwen2.5-coder:1.5b",
@@ -555,16 +618,243 @@ class ChatDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
             history = history,
             provider = effectiveProvider,
         )
-        viewModelScope.launch {
-            activeRuntimeRequest?.let { request ->
-                request.runtime.startSession(
-                    request.project.id,
-                    request.project.slug,
-                    request.project.kind,
-                    request.prompt,
-                    request.history,
-                    request.provider,
+        if (_state.value.autonomousWorkflowEnabled) {
+            autonomousWorkflowRuntime = runtimeToUse
+            autonomousWorkflowPhase = AutonomousPhase.PLANNING
+            autonomousWorkflowJob = viewModelScope.launch {
+                runAutonomousWorkflow(
+                    project = project,
+                    task = runtimePrompt,
+                    history = history,
+                    provider = effectiveProvider,
+                    runtime = runtimeToUse,
                 )
+            }
+        } else {
+            viewModelScope.launch {
+                activeRuntimeRequest?.let { request ->
+                    request.runtime.startSession(
+                        request.project.id,
+                        request.project.slug,
+                        request.project.kind,
+                        request.prompt,
+                        request.history,
+                        request.provider,
+                    )
+                }
+            }
+        }
+    }
+
+    private suspend fun runAutonomousWorkflow(
+        project: Project,
+        task: String,
+        history: List<ChatMessage>,
+        provider: ProviderProfile,
+        runtime: RuntimeBridge,
+    ) {
+        val currentAgent = _state.value.agentKind
+        val agentTitle = currentAgent.title
+        val apiKey = vault.get(provider.kind.name).orEmpty()
+            .ifBlank { if (currentAgent == AgentKind.ANTIGRAVITY) vault.get(ProviderKind.GEMINI.name).orEmpty() else "" }
+            .ifBlank { localServerPlaceholderKey(provider) }
+        try {
+            val result = autonomousWorkflowCoordinator.run(
+                task = task,
+                planner = { systemPrompt, userPrompt ->
+                    setAutonomousPhase(AutonomousPhase.PLANNING, "Planning agent", "Preparing a bounded implementation plan.")
+                    providerApi.generateText(
+                        profile = provider,
+                        apiKey = apiKey,
+                        systemPrompt = systemPrompt,
+                        userPrompt = userPrompt,
+                        maxTokens = 1_800,
+                    ).also { output -> appendAutonomousMessage("Planner · ${provider.model}", output) }
+                },
+                implementer = { implementationPrompt ->
+                    setAutonomousPhase(
+                        AutonomousPhase.IMPLEMENTING,
+                        "$agentTitle implementer",
+                        "Project edits are policy-screened; risky commands require approval.",
+                    )
+                    val completion = CompletableDeferred<Boolean>()
+                    autonomousImplementationResult = completion
+                    autonomousImplementerSessionId = null
+                    lastAutonomousActivityAt = System.currentTimeMillis()
+                    runtime.startSession(
+                        projectId = project.id,
+                        projectSlug = project.slug,
+                        projectKind = project.kind,
+                        prompt = implementationPrompt,
+                        conversationHistory = history,
+                        provider = provider,
+                    )
+                    val completed = try {
+                        withTimeout(AUTONOMOUS_IMPLEMENTATION_OVERALL_LIMIT_MS) {
+                            while (true) {
+                                // Inactivity deadline: fail if no progress event within the window.
+                                val inactiveFor = System.currentTimeMillis() - lastAutonomousActivityAt
+                                if (inactiveFor >= AUTONOMOUS_IMPLEMENTATION_INACTIVITY_LIMIT_MS) {
+                                    error("$agentTitle implementation stalled; no progress for ${AUTONOMOUS_IMPLEMENTATION_INACTIVITY_LIMIT_MS / 60_000} minutes.")
+                                }
+                                // Poll for completion so deadlines can be re-checked between polls.
+                                val result = withTimeoutOrNull(AUTONOMOUS_POLL_INTERVAL_MS) {
+                                    completion.await()
+                                }
+                                if (result != null) return@withTimeout result
+                                delay(AUTONOMOUS_POLL_INTERVAL_MS)
+                            }
+                        }
+                    } catch (e: TimeoutCancellationException) {
+                        error("$agentTitle implementation exceeded the overall time limit of ${AUTONOMOUS_IMPLEMENTATION_OVERALL_LIMIT_MS / 60_000} minutes.")
+                    }
+                    if (completed != true) error("$agentTitle did not complete the implementation phase.")
+                },
+                reviewer = { systemPrompt, userPrompt ->
+                    setAutonomousPhase(AutonomousPhase.REVIEWING, "Independent reviewer", "Reviewing the project diff.")
+                    val diff = workflowDiff(runtime, project)
+                    val reviewInput = buildString {
+                        appendLine(userPrompt)
+                        appendLine()
+                        appendLine("Project diff:")
+                        appendLine(diff.ifBlank { "(No project diff was reported by the implementation runtime.)" })
+                    }
+                    val response = providerApi.generateText(
+                        profile = provider,
+                        apiKey = apiKey,
+                        systemPrompt = systemPrompt,
+                        userPrompt = reviewInput,
+                        maxTokens = 1_600,
+                    )
+                    autonomousWorkflowCoordinator.parseReview(response)
+                },
+            )
+            appendAutonomousMessage(
+                "Reviewer · ${provider.model}",
+                buildString {
+                    appendLine("Verdict: ${result.review.verdict}")
+                    if (result.revisionMade) appendLine("One bounded revision was completed.")
+                    appendLine()
+                    append(result.review.findings)
+                },
+            )
+            completeAutonomousWorkflow(result)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            failAutonomousWorkflow(error.message ?: "Autonomous workflow failed.")
+        } finally {
+            autonomousWorkflowPhase = AutonomousPhase.IDLE
+            autonomousImplementerSessionId = null
+            autonomousImplementationResult = null
+            autonomousWorkflowRuntime = null
+            autonomousWorkflowJob = null
+        }
+    }
+
+    private suspend fun workflowDiff(runtime: RuntimeBridge, project: Project): String {
+        val changes = runtime.loadPendingChanges(project.id)
+        if (changes.isEmpty()) return ""
+        val budget = StringBuilder()
+        for (change in changes) {
+            if (budget.length >= MAX_REVIEW_DIFF_CHARS) break
+            budget.appendLine("File: ${change.path} (+${change.additions}/-${change.deletions})")
+            for (line in change.diffLines) {
+                if (budget.length >= MAX_REVIEW_DIFF_CHARS) break
+                budget.appendLine("${line.type}: ${line.text}")
+            }
+            if (change.binary) budget.appendLine("(binary file)")
+            budget.appendLine()
+        }
+        if (budget.length > MAX_REVIEW_DIFF_CHARS) {
+            budget.setLength(MAX_REVIEW_DIFF_CHARS)
+            budget.appendLine("\n[Diff truncated for review]")
+        }
+        return budget.toString()
+    }
+
+    private fun setAutonomousPhase(phase: AutonomousPhase, title: String, detail: String) {
+        autonomousWorkflowPhase = phase
+        _state.update { current ->
+            if (!current.isRunning) current else current.copy(
+                liveProcess = listOf(ActivityItem(title, detail, isComplete = false)),
+                liveThinking = phase != AutonomousPhase.IMPLEMENTING,
+                activeThinkingBlockId = null,
+            )
+        }
+    }
+
+    private fun appendAutonomousMessage(title: String, text: String) {
+        _state.update { current ->
+            if (!current.isRunning) current else current.copy(
+                messages = current.messages + ChatMessage(fromUser = false, text = "$title\n\n$text"),
+            )
+        }
+        persistMessages()
+    }
+
+    private fun completeAutonomousWorkflow(result: AutonomousWorkflowResult) {
+        val finishedAt = System.currentTimeMillis()
+        val finalDetail = if (result.review.verdict == ReviewVerdict.APPROVE) {
+            if (result.revisionMade) "Review approved after one bounded revision." else "Review approved."
+        } else {
+            "The review still has findings; no additional revision was attempted."
+        }
+        activeTaskOrchestrator?.complete(finalDetail)
+        activeTaskOrchestrator?.recordEvidence(EvidenceKind.APPROVAL, finalDetail)
+        _state.update { current ->
+            if (!current.isRunning) current else attachTaskDuration(finishWorkSegment(current, finishedAt), finishedAt).copy(
+                isRunning = false,
+                activeSessionId = null,
+                pendingApproval = null,
+                liveThinking = false,
+                activity = listOf(ActivityItem("Autonomous workflow complete", finalDetail)) +
+                    current.activity.map { if (!it.isComplete) it.copy(isComplete = true) else it },
+                taskFinishedAtMillis = finishedAt,
+                currentTaskRequest = null,
+            )
+        }
+        activeRuntimeRequest = null
+        activeTaskOrchestrator = null
+        failedApiKeyIds.clear()
+        touchProject(_state.value.activeProject?.id.orEmpty())
+        refreshProjectFiles()
+        persistMessages(includeLiveProcess = true)
+        if (pendingFollowUps.isNotEmpty()) {
+            viewModelScope.launch {
+                delay(150)
+                if (!_state.value.isRunning) startNextFollowUp()
+            }
+        }
+    }
+
+    private fun failAutonomousWorkflow(reason: String) {
+        val finishedAt = System.currentTimeMillis()
+        val message = localizedFailureReason(reason).take(500)
+        activeTaskOrchestrator?.fail(message)
+        _state.update { current ->
+            if (!current.isRunning) current else attachTaskDuration(
+                appendWorkItem(current, ActivityItem("Autonomous workflow failed", message)),
+                finishedAt,
+            ).copy(
+                isRunning = false,
+                activeSessionId = null,
+                pendingApproval = null,
+                liveThinking = false,
+                activity = listOf(ActivityItem("Autonomous workflow failed", message)) +
+                    current.activity.map { if (!it.isComplete) it.copy(isComplete = true) else it },
+                taskFinishedAtMillis = finishedAt,
+                currentTaskRequest = null,
+            )
+        }
+        activeRuntimeRequest = null
+        activeTaskOrchestrator = null
+        failedApiKeyIds.clear()
+        persistMessages(includeLiveProcess = true)
+        if (pendingFollowUps.isNotEmpty()) {
+            viewModelScope.launch {
+                delay(150)
+                if (!_state.value.isRunning) startNextFollowUp()
             }
         }
     }
@@ -579,6 +869,12 @@ class ChatDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
         steeringToFollowUp = false
         pendingFollowUps.clear()
         _state.update { it.copy(queuedFollowUps = emptyList()) }
+        if (autonomousWorkflowJob?.isActive == true) {
+            autonomousWorkflowJob?.cancel()
+            viewModelScope.launch { autonomousWorkflowRuntime?.stopActiveSession() }
+            failAutonomousWorkflow("Autonomous workflow was stopped by the user.")
+            return
+        }
         viewModelScope.launch { activeRuntime().stopActiveSession() }
     }
 
@@ -752,15 +1048,33 @@ class ChatDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
     }
 
     internal fun onRuntimeEvent(event: RuntimeEvent) {
+        // Track activity for the autonomous implementer timeout policy. Any event
+        // from the active implementation session resets the inactivity clock.
+        if (autonomousWorkflowPhase == AutonomousPhase.IMPLEMENTING &&
+            autonomousImplementerSessionId != null &&
+            event.sessionId == autonomousImplementerSessionId) {
+            lastAutonomousActivityAt = System.currentTimeMillis()
+        }
+        if (event is RuntimeEvent.SessionStarted && autonomousWorkflowPhase == AutonomousPhase.IMPLEMENTING) {
+            autonomousImplementerSessionId = event.sessionId
+            lastAutonomousActivityAt = System.currentTimeMillis()
+        }
+        val autonomousImplementerTerminal =
+            (event is RuntimeEvent.SessionCompleted || event is RuntimeEvent.SessionFailed) &&
+                autonomousImplementerSessionId == event.sessionId
+        if (autonomousImplementerTerminal) {
+            autonomousImplementationResult?.complete(event is RuntimeEvent.SessionCompleted)
+        }
         val terminalEventForActiveSession =
             (event is RuntimeEvent.SessionCompleted || event is RuntimeEvent.SessionFailed) &&
                 _state.value.isRunning &&
+                !(autonomousImplementerTerminal && event is RuntimeEvent.SessionCompleted) &&
                 (_state.value.activeSessionId == null || _state.value.activeSessionId == event.sessionId)
         if (event is RuntimeEvent.SessionFailed && _state.value.agentKind == AgentKind.ANTIGRAVITY &&
             (event.reason.contains("sign-in", true) || event.reason.contains("authentication", true))) {
             antigravityAuthController.invalidateSession(event.reason)
         }
-        if (event is RuntimeEvent.SessionFailed && retryWithNextApiKey(event)) return
+        if (event is RuntimeEvent.SessionFailed && !autonomousImplementerTerminal && retryWithNextApiKey(event)) return
 
         // Dispatch state machine transitions and record evidence to TaskOrchestrator
         when (event) {
@@ -796,7 +1110,9 @@ class ChatDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
                 activeTaskOrchestrator?.recordEvidence(EvidenceKind.DIFF, summary = "Files modified: ${event.paths.take(6).joinToString()}")
             }
             is RuntimeEvent.SessionCompleted -> {
-                activeTaskOrchestrator?.complete("Task completed successfully")
+                if (!autonomousImplementerTerminal) {
+                    activeTaskOrchestrator?.complete("Task completed successfully")
+                }
             }
             is RuntimeEvent.SessionFailed -> {
                 activeTaskOrchestrator?.fail(event.reason.take(200))
@@ -979,6 +1295,14 @@ class ChatDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
                     workSegmentStartedAtMillis = current.workSegmentStartedAtMillis ?: System.currentTimeMillis(),
                 )
                 is RuntimeEvent.SessionCompleted -> {
+                    if (autonomousImplementerTerminal) {
+                        current.copy(
+                            activeSessionId = null,
+                            liveThinking = false,
+                            activity = listOf(ActivityItem("Implementation complete", "Starting independent review.")) +
+                                current.activity.map { if (!it.isComplete) it.copy(isComplete = true) else it },
+                        )
+                    } else {
                     val finishedAt = System.currentTimeMillis()
                     attachTaskDuration(finishWorkSegment(current, finishedAt), finishedAt).copy(
                         isRunning = false,
@@ -988,6 +1312,7 @@ class ChatDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
                         taskFinishedAtMillis = finishedAt,
                         currentTaskRequest = null,
                     )
+                    }
                 }
                 is RuntimeEvent.SessionFailed -> {
                     val finishedAt = System.currentTimeMillis()

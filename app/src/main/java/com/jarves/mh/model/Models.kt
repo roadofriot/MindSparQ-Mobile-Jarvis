@@ -132,7 +132,7 @@ enum class AgentKind(
     ;
 
     companion object {
-        val VISIBLE_AGENTS: List<AgentKind> = listOf(OPENCODE)
+        val VISIBLE_AGENTS: List<AgentKind> = entries.toList()
 
         fun fromStored(value: String?): AgentKind = entries.firstOrNull {
             it.stableId == value || it.name == value

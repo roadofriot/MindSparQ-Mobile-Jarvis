@@ -186,6 +186,7 @@ fun AgentScreen(
     onActivateApiKey: (ProviderKind, String) -> List<ApiKeyInfo>,
     onRemoveApiKey: (ProviderKind, String) -> List<ApiKeyInfo>,
     onSelectAgent: (AgentKind) -> Unit = {},
+    onToggleAutonomousWorkflow: (Boolean) -> Unit = {},
     onInstallAgent: (AgentKind) -> Unit = {},
     onCheckAgentUpdates: () -> Unit = {},
     onUpdateAgent: (AgentKind) -> Unit = {},
@@ -1296,6 +1297,35 @@ fun AgentScreen(
                 }
             }
 
+            item {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Autonomous multi-agent workflow", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "Planner → ${state.agentKind.title} implementer → reviewer. The configured model (Gemini, Antigravity, OpenCode, Claude, or local) handles bounded planning, policy-screened edits, and diff review.",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = state.autonomousWorkflowEnabled,
+                            onCheckedChange = onToggleAutonomousWorkflow,
+                            enabled = !state.isRunning,
+                        )
+                    }
+                }
+            }
+
             // ── 3. On-Device Offline AI Models (Local SLM Studio) ──
             item {
                 OfflineModelSection(
@@ -1332,4 +1362,3 @@ fun AgentScreen(
         }
     }
 }
-

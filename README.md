@@ -110,6 +110,12 @@ All generated projects are automatically mirrored to your public **`Documents/Mi
 - **Shortcut Strips**: Persistent coding keys above the keyboard (`Tab`, `Ctrl`, `Esc`, `↑`, `↓`, `|`, `/`, `~`, `$`, `"`, `'`, `{`, `}`, `git`).
 - **Side-by-Side Diff Viewer**: Real-time git changes tab with single-tap file rollback (`Undo`) or acceptance (`Keep`).
 
+### 7. Autonomous Multi-Agent Workflow
+- **Planner → Implementer → Reviewer**: An opt-in sequential workflow plans the request, implements it with Claude Code, and reviews the resulting project diff.
+- **Bounded Revision**: The implementer may make at most one revision based on review findings.
+- **Permission Gate**: In-project file edits are allowed automatically; risky or unclassified commands pause for approval, while out-of-workspace paths are denied.
+- **Configured Services Only**: Planning and review use the selected API provider; the workflow requires Claude Code to be installed and an API-key provider configured. It does not install agents automatically and makes additional provider calls.
+
 <br />
 
 ---

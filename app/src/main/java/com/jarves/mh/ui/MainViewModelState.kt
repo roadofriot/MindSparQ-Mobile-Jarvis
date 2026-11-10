@@ -272,6 +272,7 @@ data class AppUiState(
     val devStackBytesPerSecond: Long? = null,
     val agentKind: AgentKind = AgentKind.CLAUDE_CODE,
     val primaryAgentKind: AgentKind = AgentKind.CLAUDE_CODE,
+    val autonomousWorkflowEnabled: Boolean = false,
     val installedAgentVersions: Map<AgentKind, String> = emptyMap(),
     val agentInstalling: AgentKind? = null,
     val agentMessage: String? = null,
@@ -319,4 +320,3 @@ data class AppUiState(
     val integrityChecking: Boolean = false,
     val integrityCheckIntervalMinutes: Long = 30,
 )
-

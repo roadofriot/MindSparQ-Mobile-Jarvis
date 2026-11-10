@@ -189,14 +189,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!signedIn) preferences.clearAgentConversations(AgentKind.ANTIGRAVITY)
     }
 
-    private val initialAgentKind = AgentKind.fromStored(preferences.agentKind).let {
-        if (it == AgentKind.CLAUDE_CODE || it == AgentKind.ANTIGRAVITY || it == AgentKind.DEEPSEEK_HARNESS) AgentKind.OPENCODE else it
-    }
+    private val initialAgentKind = AgentKind.fromStored(preferences.agentKind)
     private val initialPrimaryAgentKind = preferences.primaryAgentKind
         .takeIf(String::isNotBlank)
-        ?.let(AgentKind::fromStored)?.let {
-            if (it == AgentKind.CLAUDE_CODE || it == AgentKind.ANTIGRAVITY || it == AgentKind.DEEPSEEK_HARNESS) AgentKind.OPENCODE else it
-        }
+        ?.let(AgentKind::fromStored)
         ?: initialAgentKind
 
     internal val _state = MutableStateFlow(
@@ -207,6 +203,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             initialLanguageSelected = preferences.initialLanguageSelected,
             agentKind = initialAgentKind,
             primaryAgentKind = initialPrimaryAgentKind,
+            autonomousWorkflowEnabled = preferences.autonomousWorkflowEnabled,
             provider = preferences.loadProvider(vault, initialAgentKind),
             activeApiKeyName = vault.list(preferences.loadProvider(vault, initialAgentKind).kind.name)
                 .firstOrNull(ApiKeyInfo::isActive)?.name,
@@ -465,6 +462,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun updateProvider(profile: ProviderProfile, secret: String) = agentDelegate.updateProvider(profile, secret)
     fun finishBackgroundSetup() = agentDelegate.finishBackgroundSetup()
     fun selectAgent(kind: AgentKind) = agentDelegate.selectAgent(kind)
+    fun setAutonomousWorkflowEnabled(enabled: Boolean) = agentDelegate.setAutonomousWorkflowEnabled(enabled)
     fun installAgent(kind: AgentKind) = agentDelegate.installAgent(kind)
     fun checkAgentUpdates() = agentDelegate.checkAgentUpdates()
     fun updateAgent(kind: AgentKind) = agentDelegate.updateAgent(kind)

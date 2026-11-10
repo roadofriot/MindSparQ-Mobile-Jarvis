@@ -381,7 +381,7 @@ class AgentProviderPresetTest {
         assertTrue(ProviderKind.NVIDIA_NIM in DEEPSEEK_HARNESS_PROVIDERS)
         assertTrue(ProviderKind.GEMINI in DEEPSEEK_HARNESS_PROVIDERS)
         assertTrue(ProviderKind.OLLAMA in DEEPSEEK_HARNESS_PROVIDERS)
-        assertEquals(9, DEEPSEEK_HARNESS_PROVIDERS.size)
+        assertEquals(12, DEEPSEEK_HARNESS_PROVIDERS.size)
     }
 
     @Test

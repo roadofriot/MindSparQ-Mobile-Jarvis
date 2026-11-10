@@ -16,6 +16,8 @@ import com.jarves.mh.model.RiskLevel
 import com.jarves.mh.model.RuntimeEvent
 import com.jarves.mh.model.ToolRequest
 import com.mindsparq.jarvis.ai.gateway.KeyPoolManager
+import com.mindsparq.jarvis.core.policy.PolicyAction
+import com.mindsparq.jarvis.core.policy.PolicyEngine
 import java.io.File
 import java.io.RandomAccessFile
 import java.security.MessageDigest
@@ -78,6 +80,7 @@ class ClaudeRuntimeBridge(
     private val eventBus = MutableSharedFlow<RuntimeEvent>(extraBufferCapacity = 64)
     override val events: Flow<RuntimeEvent> = eventBus
     private val pending = ConcurrentHashMap<String, PendingPermission>()
+    private val seenPermissionRequests = ConcurrentHashMap.newKeySet<String>()
     private val toolNames = ConcurrentHashMap<String, String>()
     private val seenToolCalls = ConcurrentHashMap.newKeySet<String>()
     private val finishedSessions = ConcurrentHashMap.newKeySet<String>()
@@ -107,6 +110,7 @@ class ClaudeRuntimeBridge(
         foregroundResultPosted = false
         toolNames.clear()
         seenToolCalls.clear()
+        seenPermissionRequests.clear()
         lastReasoningTokens = 0
         lastReasoningUpdateAt = 0L
         lastThinkingUpdateAt = 0L
@@ -188,6 +192,7 @@ class ClaudeRuntimeBridge(
                 add("25")
             }
             Log.d("ClaudeBridge", "Launching command: $command")
+            clearStalePermissionRequests()
             val process = installer.process(
                 installed.proot,
                 installed.rootfs,
@@ -199,7 +204,9 @@ class ClaudeRuntimeBridge(
             activeProcess = process
             if (userStopRequested) process.destroy()
             coroutineScope {
-                val permissionWatcher = launch { watchPermissionRequests(sessionId) }
+                val permissionWatcher = launch {
+                    watchPermissionRequests(sessionId, workspace, guestWorkspacePath)
+                }
                 var lastDiagnostic = ""
                 val pendingOutput = StringBuilder()
                 val nativeProcess = process as? NativeSpawnProcess
@@ -443,32 +450,87 @@ class ClaudeRuntimeBridge(
         true
     }
 
-    private suspend fun watchPermissionRequests(sessionId: String) {
+    private suspend fun watchPermissionRequests(
+        sessionId: String,
+        workspace: File,
+        guestWorkspacePath: String,
+    ) {
         val bridge = File(context.filesDir, "runtime-bridge")
         while (kotlin.coroutines.coroutineContext.isActive) {
             bridge.listFiles { file -> file.name.endsWith(".request") }.orEmpty().forEach { file ->
                 val approvalId = file.name.removeSuffix(".request")
-                runCatching {
+                if (!seenPermissionRequests.add(approvalId)) return@forEach
+                val response = File(file.parentFile, "$approvalId.response")
+                try {
                     val json = JSONObject(file.readText())
                     val toolName = json.optString("tool_name", "Tool")
                     val input = json.optJSONObject("tool_input") ?: JSONObject()
-                    val command = input.optString("command").ifBlank { null }
+                    val command = input.optString("command")
+                        .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
                     val paths = listOf("file_path", "path", "notebook_path")
-                        .mapNotNull { key -> input.optString(key).takeIf(String::isNotBlank) }
+                        .mapNotNull { key ->
+                            input.optString(key).takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                        }
+                        .ifEmpty {
+                            if (toolName in setOf("Glob", "Grep")) listOf(guestWorkspacePath) else emptyList()
+                        }
                     val explanation = input.optString("description")
                         .ifBlank { command.orEmpty() }
                         .ifBlank { "$toolName running in project" }
-
-                    Log.d("ClaudeBridge", "Auto-approving permission request $approvalId for $toolName ($paths)")
-                    val response = File(file.parentFile, "$approvalId.response")
-                    response.writeText("allow")
-
-                    eventBus.emit(RuntimeEvent.ToolCompleted(sessionId, toolName, explanation))
-                }.onFailure {
-                    File(file.parentFile, "$approvalId.response").writeText("allow")
+                    val decision = PolicyEngine.evaluateAgentTool(
+                        toolName = toolName,
+                        command = command,
+                        targetPaths = paths,
+                        workspaceRoot = workspace.canonicalPath,
+                        guestWorkspaceRoot = guestWorkspacePath,
+                    )
+                    when (decision.action) {
+                        PolicyAction.ALLOW -> {
+                            response.writeText("allow")
+                            eventBus.emit(RuntimeEvent.RuntimeLog(sessionId, "Policy allowed", decision.reason))
+                        }
+                        PolicyAction.DENY -> {
+                            response.writeText("deny")
+                            eventBus.emit(RuntimeEvent.RuntimeLog(sessionId, "Policy denied", decision.reason))
+                        }
+                        PolicyAction.ASK -> {
+                            val request = ToolRequest(
+                                approvalId = approvalId,
+                                sessionId = sessionId,
+                                toolName = toolName,
+                                explanation = sanitizeForDisplay(explanation),
+                                affectedPaths = paths,
+                                commandPreview = command?.let(::sanitizeForDisplay),
+                                risk = if (command.isNullOrBlank()) RiskLevel.REVIEW else classifyRisk(toolName, command),
+                            )
+                            pending[approvalId] = PendingPermission(request, response)
+                            eventBus.emit(RuntimeEvent.ToolRequested(sessionId, request))
+                        }
+                    }
+                } catch (error: Exception) {
+                    response.writeText("deny")
+                    Log.e("ClaudeBridge", "Rejected malformed permission request $approvalId", error)
+                    eventBus.emit(
+                        RuntimeEvent.RuntimeLog(
+                            sessionId,
+                            "Policy denied",
+                            "The permission request could not be validated and was denied.",
+                        ),
+                    )
                 }
             }
             delay(50)
+        }
+    }
+
+    private fun clearStalePermissionRequests() {
+        val bridge = File(context.filesDir, "runtime-bridge").apply { mkdirs() }
+        bridge.listFiles { file ->
+            file.name.endsWith(".request") || file.name.endsWith(".response")
+        }.orEmpty().forEach { file ->
+            if (!file.delete()) {
+                Log.w("ClaudeBridge", "Could not clear stale permission bridge file ${file.name}")
+            }
         }
     }
 

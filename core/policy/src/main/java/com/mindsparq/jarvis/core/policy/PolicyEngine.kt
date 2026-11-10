@@ -124,4 +124,72 @@ object PolicyEngine {
             PolicyDecision(PolicyAction.DENY, "Path traversal attempt outside workspace jail: $targetPath")
         }
     }
+
+    fun evaluateAgentTool(
+        toolName: String,
+        command: String?,
+        targetPaths: List<String>,
+        workspaceRoot: String,
+        guestWorkspaceRoot: String,
+    ): PolicyDecision {
+        val root = java.io.File(workspaceRoot).canonicalFile
+        val guestRoot = guestWorkspaceRoot.trimEnd('/')
+        if (workspaceRoot.isBlank() || guestRoot.isBlank() || targetPaths.any(String::isBlank)) {
+            return PolicyDecision(PolicyAction.DENY, "The agent tool request has an invalid workspace path")
+        }
+
+        for (path in targetPaths) {
+            val candidate = path.trim()
+            val relative = when {
+                candidate == guestRoot -> ""
+                candidate.startsWith("$guestRoot/") -> candidate.removePrefix("$guestRoot/")
+                candidate.startsWith("/") -> return PolicyDecision(
+                    PolicyAction.DENY,
+                    "Agent tool path is outside the project workspace",
+                )
+                else -> candidate
+            }
+            val decision = evaluatePathAccess(root.path, java.io.File(root, relative).path)
+            if (decision.action != PolicyAction.ALLOW) return decision
+        }
+
+        return when (toolName.lowercase()) {
+            "bash" -> evaluateAgentCommand(command.orEmpty(), guestRoot)
+            "write", "edit", "notebookedit", "read", "glob", "grep", "listfiles" ->
+                if (targetPaths.isEmpty()) {
+                    PolicyDecision(PolicyAction.ASK, "The tool did not identify a project path")
+                } else {
+                    PolicyDecision(PolicyAction.ALLOW, "Tool paths are confined to the project workspace")
+                }
+            else -> PolicyDecision(PolicyAction.ASK, "This agent tool requires explicit user approval")
+        }
+    }
+
+    private fun evaluateAgentCommand(command: String, guestWorkspaceRoot: String): PolicyDecision {
+        val trimmed = command.trim()
+        val hardDeny = evaluateCommand(trimmed, ExecutionMode.WORK)
+        if (hardDeny.action == PolicyAction.DENY) return hardDeny
+
+        if (Regex("""(^|\s|/)\.\.(/|\s|$)""").containsMatchIn(trimmed)) {
+            return PolicyDecision(PolicyAction.DENY, "Path traversal is not allowed in agent commands")
+        }
+        val externalPath = Regex("""(?:^|[\s"'=(])(/[^ \t\r\n"'(),;]*)""")
+            .findAll(trimmed)
+            .map { it.groupValues[1] }
+            .firstOrNull { path -> path != guestWorkspaceRoot && !path.startsWith("$guestWorkspaceRoot/") }
+        if (externalPath != null) {
+            return PolicyDecision(PolicyAction.DENY, "Agent command references a path outside the project workspace")
+        }
+
+        if (Regex("""[;&|<>`\n\r]|\$\(""").containsMatchIn(trimmed)) {
+            return PolicyDecision(PolicyAction.ASK, "Compound shell commands require explicit user approval")
+        }
+
+        val safeExactCommands = setOf("pwd", "ls", "git status", "git diff", "git log", "git branch")
+        return if (trimmed in safeExactCommands) {
+            PolicyDecision(PolicyAction.ALLOW, "Read-only command is on the agent allowlist")
+        } else {
+            PolicyDecision(PolicyAction.ASK, "Command requires explicit user approval")
+        }
+    }
 }

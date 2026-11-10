@@ -157,6 +157,11 @@ class AppPreferences(private val context: Context) {
             preferences.edit().putString("selected_dev_stacks", arr.toString()).apply()
         }
 
+    var autonomousWorkflowEnabled: Boolean
+        get() = preferences.getBoolean("autonomous_workflow_enabled", false)
+        set(value) {
+            preferences.edit().putBoolean("autonomous_workflow_enabled", value).apply()
+        }
 
     fun saveProvider(profile: ProviderProfile, agent: AgentKind? = null) {
         val editor = preferences.edit()

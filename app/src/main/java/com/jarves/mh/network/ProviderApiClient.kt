@@ -159,6 +159,47 @@ class ProviderApiClient(private val context: Context? = null) {
         }
     }
 
+    suspend fun generateText(
+        profile: ProviderProfile,
+        apiKey: String,
+        systemPrompt: String,
+        userPrompt: String,
+        maxTokens: Int,
+    ): String = withContext(Dispatchers.IO) {
+        val protocol = profile.kind.protocol
+        require(protocol != ProviderProtocol.CLAUDE_LOGIN) {
+            "Autonomous planning and review require an API-key provider, not a subscription login."
+        }
+        require(profile.resolvedBaseUrl.isNotBlank() && profile.model.isNotBlank()) {
+            "Select a provider URL and model before starting the autonomous workflow."
+        }
+        val endpoint = messagesEndpoint(profile.resolvedBaseUrl, protocol)
+        val body = generationBody(
+            model = profile.model,
+            protocol = protocol,
+            systemPrompt = systemPrompt,
+            userPrompt = userPrompt,
+            maxTokens = maxTokens.coerceIn(64, 8_000),
+            openRouterProviderOrder = profile.openRouterProviderOrder,
+            openRouterAllowFallbacks = profile.openRouterAllowFallbacks,
+        )
+        val response = request(
+            endpoint = endpoint,
+            method = "POST",
+            apiKey = apiKey,
+            body = body,
+            protocol = protocol,
+            readTimeoutMs = 120_000,
+        )
+        if (response.code !in 200..299) {
+            throw IllegalStateException(
+                response.error ?: providerErrorMessage(response.body) ?: friendlyHttpError(response.code),
+            )
+        }
+        parseGeneratedText(response.body, protocol)
+            .ifBlank { throw IllegalStateException("The provider returned an empty planning or review response.") }
+    }
+
     /**
      * Discovers models across multiple providers and returns the first successful result.
      * When [parallel] is true, all providers are queried at once and the first success wins.
@@ -411,6 +452,94 @@ class ProviderApiClient(private val context: Context? = null) {
                 }
             }
             .toString()
+    }
+
+    internal fun generationBody(
+        model: String,
+        protocol: ProviderProtocol,
+        systemPrompt: String,
+        userPrompt: String,
+        maxTokens: Int,
+        openRouterProviderOrder: String = "",
+        openRouterAllowFallbacks: Boolean = true,
+    ): String = when (protocol) {
+        ProviderProtocol.OPENAI_RESPONSES -> JSONObject()
+            .put("model", model)
+            .put("instructions", systemPrompt)
+            .put("input", userPrompt)
+            .put("max_output_tokens", maxTokens)
+            .toString()
+        ProviderProtocol.OPENAI_CHAT -> JSONObject()
+            .put("model", model)
+            .put("max_tokens", maxTokens)
+            .put(
+                "messages",
+                JSONArray()
+                    .put(JSONObject().put("role", "system").put("content", systemPrompt))
+                    .put(JSONObject().put("role", "user").put("content", userPrompt)),
+            )
+            .toString()
+        else -> JSONObject()
+            .put("model", model)
+            .put("max_tokens", maxTokens)
+            .put("system", systemPrompt)
+            .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", userPrompt)))
+            .also { body ->
+                val providers = openRouterProviderOrder.split(',')
+                    .map(String::trim)
+                    .filter(String::isNotBlank)
+                    .distinct()
+                if (protocol == ProviderProtocol.OPENROUTER && providers.isNotEmpty()) {
+                    body.put(
+                        "provider",
+                        JSONObject()
+                            .put("order", JSONArray(providers))
+                            .put("allow_fallbacks", openRouterAllowFallbacks),
+                    )
+                }
+            }
+            .toString()
+    }
+
+    internal fun parseGeneratedText(json: String, protocol: ProviderProtocol): String {
+        val root = JSONObject(json)
+        if (protocol == ProviderProtocol.OPENAI_RESPONSES) {
+            root.optString("output_text").takeIf(String::isNotBlank)?.let { return it.trim() }
+            val output = root.optJSONArray("output") ?: return ""
+            return buildString {
+                for (index in 0 until output.length()) {
+                    val content = output.optJSONObject(index)?.optJSONArray("content") ?: continue
+                    for (contentIndex in 0 until content.length()) {
+                        content.optJSONObject(contentIndex)?.optString("text")
+                            ?.takeIf(String::isNotBlank)
+                            ?.let(::append)
+                    }
+                }
+            }.trim()
+        }
+        if (protocol == ProviderProtocol.OPENAI_CHAT) {
+            val choices = root.optJSONArray("choices") ?: return ""
+            val content = choices.optJSONObject(0)?.optJSONObject("message")?.opt("content")
+            return when (content) {
+                is String -> content.trim()
+                is JSONArray -> buildString {
+                    for (index in 0 until content.length()) {
+                        content.optJSONObject(index)?.optString("text")
+                            ?.takeIf(String::isNotBlank)
+                            ?.let(::append)
+                    }
+                }.trim()
+                else -> ""
+            }
+        }
+        val content = root.optJSONArray("content") ?: return ""
+        return buildString {
+            for (index in 0 until content.length()) {
+                content.optJSONObject(index)?.optString("text")
+                    ?.takeIf(String::isNotBlank)
+                    ?.let(::append)
+            }
+        }.trim()
     }
 
     private fun friendlyHttpError(code: Int): String = when (code) {

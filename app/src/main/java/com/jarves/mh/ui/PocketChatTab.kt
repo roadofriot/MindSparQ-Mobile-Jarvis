@@ -333,12 +333,26 @@ internal fun ChatTab(
     val userPrompts = remember(messages, lastSentPrompt) {
         val list = mutableListOf<String>()
         if (lastSentPrompt.isNotBlank()) list.add(lastSentPrompt)
-        messages.filter { it.fromUser && it.text.isNotBlank() }.map { it.text }.reversed().forEach { msg ->
+        messages.filter { it.fromUser && it.text.isNotBlank() }.map { it.text.trim() }.reversed().forEach { msg ->
             if (!list.contains(msg)) list.add(msg)
         }
         list
     }
-    val candidateToRestore = remember(userPrompts) { userPrompts.firstOrNull() }
+    val frequentQueries = remember(messages) {
+        val userList = messages.filter { it.fromUser && it.text.isNotBlank() }.map { it.text.trim() }
+        val counts = userList.groupingBy { it }.eachCount().filter { it.value >= 2 }
+        val sorted = counts.entries.sortedByDescending { it.value }.map { it.key to it.value }
+        if (sorted.isNotEmpty()) sorted.take(6)
+        else listOf(
+            "git status and git diff" to 1,
+            "Run build and fix any errors" to 1,
+            "Explain architecture of this project" to 1,
+        )
+    }
+    val typingHints = remember(prompt, userPrompts) {
+        if (prompt.isBlank()) emptyList()
+        else computeTypingHints(prompt, userPrompts)
+    }
     var historyMenuOpen by remember { mutableStateOf(false) }
     val chatSpeechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -569,47 +583,148 @@ internal fun ChatTab(
                     }
                 }
 
-                // Quick Restore Hint for previous content
-                if (prompt.isBlank() && candidateToRestore != null) {
-                    Row(
+                // 1. Dynamic Predictive Typing & Paraphrase Hints (Active when typing)
+                if (prompt.isNotBlank() && typingHints.isNotEmpty()) {
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { prompt = candidateToRestore },
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(bottom = 3.dp),
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Refresh,
-                                    contentDescription = "Restore",
-                                    modifier = Modifier.size(13.dp),
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    text = "Tap to restore: \"${candidateToRestore.replace('\n', ' ').take(45)}${if (candidateToRestore.length > 45) "…" else ""}\"",
-                                    fontSize = 11.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    fontWeight = FontWeight.Medium,
-                                )
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                modifier = Modifier.size(12.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                "Suggestions & Paraphrases:",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            typingHints.forEach { hint ->
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = when (hint.kind) {
+                                        HintKind.PARAPHRASE -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
+                                        HintKind.COMPLETION -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                                        HintKind.WORD -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+                                    },
+                                    border = BorderStroke(
+                                        1.dp,
+                                        when (hint.kind) {
+                                            HintKind.PARAPHRASE -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.45f)
+                                            HintKind.COMPLETION -> MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                                            HintKind.WORD -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                                        },
+                                    ),
+                                    modifier = Modifier.clickable {
+                                        prompt = hint.replacementText
+                                    },
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            text = when (hint.kind) {
+                                                HintKind.PARAPHRASE -> "✨ "
+                                                HintKind.COMPLETION -> "➡️ "
+                                                HintKind.WORD -> "💬 "
+                                            },
+                                            fontSize = 11.sp,
+                                        )
+                                        Text(
+                                            text = hint.label,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = when (hint.kind) {
+                                                HintKind.PARAPHRASE -> MaterialTheme.colorScheme.onSecondaryContainer
+                                                HintKind.COMPLETION -> MaterialTheme.colorScheme.onPrimaryContainer
+                                                HintKind.WORD -> MaterialTheme.colorScheme.onSurfaceVariant
+                                            },
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
 
-                // Mobile Coding Quick Prompt Strip
+                // 2. Compact single-line strip for previous queries & single frequent item (protects vertical height)
+                if (prompt.isBlank() && (userPrompts.isNotEmpty() || frequentQueries.isNotEmpty())) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(bottom = 3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // Exactly one frequent content item (protects height space)
+                        if (frequentQueries.isNotEmpty()) {
+                            val topFreq = frequentQueries.first()
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
+                                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.35f)),
+                                modifier = Modifier.clickable { prompt = topFreq.first },
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = if (topFreq.second > 1) "🔁 ${topFreq.second}x " else "⭐ ",
+                                        fontSize = 8.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.secondary,
+                                    )
+                                    Text(
+                                        text = topFreq.first.replace('\n', ' ').take(24) + if (topFreq.first.length > 24) "…" else "",
+                                        fontSize = 9.5.sp,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    )
+                                }
+                            }
+                        }
+
+                        // Compact previous queries (small font, protects height)
+                        userPrompts.take(4).forEach { prevQuery ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                                modifier = Modifier.clickable { prompt = prevQuery },
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = prevQuery.replace('\n', ' ').take(22) + if (prevQuery.length > 22) "…" else "",
+                                        fontSize = 9.5.sp,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+// Mobile Coding Quick Prompt Strip
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -726,13 +841,18 @@ internal fun ChatTab(
 
                         IconButton(
                             onClick = {
-                                onOpenLiveVoice()
+                                chatSpeechLauncher.launch(
+                                    Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to type in chat…")
+                                    }
+                                )
                             },
                             modifier = Modifier.size(38.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Mic,
-                                contentDescription = "Live Voice JARVIS",
+                                contentDescription = "Voice input JARVIS",
                                 tint = PocketOrange,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -1376,4 +1496,125 @@ private fun ApprovalCard(request: ToolRequest, onApproval: (Boolean) -> Unit) {
         }
     }
 }
+
+private enum class HintKind {
+    COMPLETION,
+    PARAPHRASE,
+    WORD,
+}
+
+private data class TypingHint(
+    val label: String,
+    val replacementText: String,
+    val kind: HintKind,
+)
+
+private fun computeTypingHints(input: String, history: List<String>): List<TypingHint> {
+    val trimmed = input.trim()
+    if (trimmed.isBlank()) return emptyList()
+    val hints = mutableListOf<TypingHint>()
+
+    // 1. Check history for queries that match the typed text
+    history.filter { it.contains(trimmed, ignoreCase = true) && !it.equals(trimmed, ignoreCase = true) }
+        .take(3)
+        .forEach { histItem ->
+            val preview = histItem.replace('\n', ' ').take(35) + if (histItem.length > 35) "…" else ""
+            hints.add(TypingHint("History: $preview", histItem, HintKind.COMPLETION))
+        }
+
+    // 2. Contextual sentence completions based on intent/action keywords
+    val lower = trimmed.lowercase()
+    val commonIntents = listOf(
+        "fix" to listOf(
+            "Fix all compiler errors and verify build",
+            "Fix runtime crash and add null checks",
+            "Fix layout styling and theme colors",
+        ),
+        "add" to listOf(
+            "Add error handling and logging",
+            "Add unit tests covering edge cases",
+            "Add API key validation and persistent storage",
+        ),
+        "create" to listOf(
+            "Create a new screen with Jetpack Compose",
+            "Create unit tests for this workflow",
+            "Create an autonomous multi-agent task",
+        ),
+        "make" to listOf(
+            "Make this work with open source models",
+            "Make UI responsive for light and dark themes",
+            "Make all buttons and actions fully interactive",
+        ),
+        "build" to listOf(
+            "Build debug APK and report any compiler errors",
+            "Build with stacktrace for debugging",
+        ),
+        "run" to listOf(
+            "Run unit tests and show test results",
+            "Run app on connected Android device",
+        ),
+        "git" to listOf(
+            "git status and git diff --stat",
+            "git commit with clean descriptive message",
+            "git push origin main",
+        ),
+        "refactor" to listOf(
+            "Refactor into clean modular architecture",
+            "Refactor to improve performance and reduce memory",
+        ),
+        "explain" to listOf(
+            "Explain project architecture and file structure",
+            "Explain this error stacktrace step by step",
+        ),
+        "test" to listOf(
+            "Test online debug build and verify tests pass",
+            "Test edge cases and error handling",
+        ),
+    )
+
+    for ((keyword, completions) in commonIntents) {
+        if (lower.startsWith(keyword) || lower.contains(" $keyword")) {
+            completions.forEach { completion ->
+                if (!completion.equals(trimmed, ignoreCase = true) && hints.none { it.replacementText == completion }) {
+                    hints.add(TypingHint(completion.take(36) + if (completion.length > 36) "…" else "", completion, HintKind.COMPLETION))
+                }
+            }
+        }
+    }
+
+    // 3. Smart Paraphrases for the user's content
+    if (trimmed.length >= 3) {
+        val detailed = "$trimmed with detailed error handling, comments, and step-by-step verification"
+        hints.add(TypingHint("Detailed: ${trimmed.take(20)}…", detailed, HintKind.PARAPHRASE))
+
+        val withTests = "$trimmed, and ensure all tests pass cleanly"
+        hints.add(TypingHint("With tests: ${trimmed.take(20)}…", withTests, HintKind.PARAPHRASE))
+
+        val safe = "$trimmed without breaking existing logic or APIs"
+        hints.add(TypingHint("Non-breaking: ${trimmed.take(20)}…", safe, HintKind.PARAPHRASE))
+    }
+
+    // 4. Next word suggestions
+    val words = trimmed.split(Regex("\\s+"))
+    val lastWord = words.lastOrNull()?.lowercase().orEmpty()
+    if (lastWord.isNotEmpty()) {
+        val nextWords = when (lastWord) {
+            "to" -> listOf("implement", "create", "fix", "verify")
+            "the" -> listOf("build", "code", "errors", "issue", "project", "UI")
+            "and" -> listOf("test", "run", "verify", "fix", "explain")
+            "with" -> listOf("Gemini", "Antigravity", "OpenCode", "unit tests", "clean code")
+            "in" -> listOf("Android", "Kotlin", "Compose", "ChatDelegate", "background")
+            "for" -> listOf("performance", "light/dark mode", "offline usage", "all devices")
+            "check" -> listOf("build", "status", "logs", "errors", "tests")
+            else -> emptyList()
+        }
+        nextWords.take(2).forEach { next ->
+            val extended = "$trimmed $next"
+            hints.add(TypingHint("+$next", extended, HintKind.WORD))
+        }
+    }
+
+    return hints.take(8)
+}
+
 

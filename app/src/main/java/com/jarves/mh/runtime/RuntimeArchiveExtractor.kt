@@ -6,6 +6,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.file.Files
 import java.security.MessageDigest
 import java.util.zip.ZipInputStream
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
@@ -21,11 +22,28 @@ internal object RuntimeArchiveExtractor {
 
     fun safeChild(root: File, relative: String): File {
         val canonicalRoot = root.canonicalFile
-        val target = File(root, relative).canonicalFile
-        require(target.path == canonicalRoot.path || target.path.startsWith("${canonicalRoot.path}${File.separator}")) {
+        val rootPath = canonicalRoot.toPath()
+        val relativePath = File(relative).toPath()
+        require(!relativePath.isAbsolute) {
             "Archive path escapes destination: $relative"
         }
-        return target
+        val targetPath = rootPath.resolve(relativePath).normalize()
+        require(targetPath.startsWith(rootPath)) {
+            "Archive path escapes destination: $relative"
+        }
+        if (targetPath != rootPath) {
+            val canonicalParent = targetPath.parent.toFile().canonicalFile.toPath()
+            require(canonicalParent.startsWith(rootPath)) {
+                "Archive path escapes destination: $relative"
+            }
+        }
+        return targetPath.toFile()
+    }
+
+    private fun removeExistingSymlink(target: File) {
+        if (Files.isSymbolicLink(target.toPath())) {
+            check(target.delete()) { "Could not replace symbolic link: ${target.name}" }
+        }
     }
 
     fun digest(file: File, algorithm: String = "SHA-256"): String {
@@ -107,9 +125,11 @@ internal object RuntimeArchiveExtractor {
                 if (name.isNotBlank()) {
                     val target = safeChild(destination, name)
                     if (entry.isDirectory) {
+                        removeExistingSymlink(target)
                         target.mkdirs()
                     } else {
                         target.parentFile?.mkdirs()
+                        removeExistingSymlink(target)
                         FileOutputStream(target).use { output -> zip.copyTo(output) }
                     }
                 }
@@ -127,7 +147,10 @@ internal object RuntimeArchiveExtractor {
                 val cleanName = entry.name.removePrefix("./")
                 val target = safeChild(destination, cleanName)
                 when {
-                    entry.isDirectory -> target.mkdirs()
+                    entry.isDirectory -> {
+                        removeExistingSymlink(target)
+                        target.mkdirs()
+                    }
                     entry.isSymbolicLink -> {
                         target.parentFile?.mkdirs()
                         if (target.exists() || java.nio.file.Files.isSymbolicLink(target.toPath())) target.delete()
@@ -136,6 +159,7 @@ internal object RuntimeArchiveExtractor {
                     entry.isLink -> {
                         target.parentFile?.mkdirs()
                         val linkTarget = safeChild(destination, entry.linkName.removePrefix("./"))
+                        removeExistingSymlink(target)
                         if (linkTarget.exists()) {
                             linkTarget.inputStream().use { input -> FileOutputStream(target).use { input.copyTo(it) } }
                         } else {
@@ -144,6 +168,7 @@ internal object RuntimeArchiveExtractor {
                     }
                     entry.isFile -> {
                         target.parentFile?.mkdirs()
+                        removeExistingSymlink(target)
                         FileOutputStream(target).use { output -> tar.copyTo(output) }
                         runCatching { Os.chmod(target.absolutePath, entry.mode and 0b111111111) }
                     }
@@ -154,6 +179,7 @@ internal object RuntimeArchiveExtractor {
         deferredLinks.forEach { (target, linkTarget) ->
             require(linkTarget.isFile) { "Archive hard-link target is missing" }
             target.parentFile?.mkdirs()
+            removeExistingSymlink(target)
             linkTarget.inputStream().use { input -> FileOutputStream(target).use { input.copyTo(it) } }
             runCatching { Os.chmod(target.absolutePath, Os.stat(linkTarget.absolutePath).st_mode) }
         }
@@ -178,6 +204,7 @@ internal object RuntimeArchiveExtractor {
                     entry.isLink -> {
                         target.parentFile?.mkdirs()
                         val linkTarget = safeChild(destination, entry.linkName.removePrefix("./"))
+                        removeExistingSymlink(target)
                         if (linkTarget.exists()) {
                             linkTarget.inputStream().use { input -> FileOutputStream(target).use { input.copyTo(it) } }
                         } else {
@@ -186,6 +213,7 @@ internal object RuntimeArchiveExtractor {
                     }
                     entry.isFile -> {
                         target.parentFile?.mkdirs()
+                        removeExistingSymlink(target)
                         FileOutputStream(target).use { output -> tar.copyTo(output) }
                         runCatching { Os.chmod(target.absolutePath, entry.mode and 0b111111111) }
                     }
@@ -196,6 +224,7 @@ internal object RuntimeArchiveExtractor {
         deferredLinks.forEach { (target, linkTarget) ->
             require(linkTarget.isFile) { "Archive hard-link target is missing" }
             target.parentFile?.mkdirs()
+            removeExistingSymlink(target)
             linkTarget.inputStream().use { input -> FileOutputStream(target).use { input.copyTo(it) } }
             runCatching { Os.chmod(target.absolutePath, Os.stat(linkTarget.absolutePath).st_mode) }
         }
@@ -212,14 +241,18 @@ internal object RuntimeArchiveExtractor {
                 if (trimmed.isNotBlank()) {
                     val target = safeChild(destination, trimmed)
                     when {
-                        entry.isDirectory -> target.mkdirs()
+                        entry.isDirectory -> {
+                            removeExistingSymlink(target)
+                            target.mkdirs()
+                        }
                         entry.isSymbolicLink -> {
                             target.parentFile?.mkdirs()
-                            if (target.exists() || java.nio.file.Files.isSymbolicLink(target.toPath())) target.delete()
+                            if (target.exists() || Files.isSymbolicLink(target.toPath())) target.delete()
                             Os.symlink(entry.linkName, target.absolutePath)
                         }
                         entry.isFile -> {
                             target.parentFile?.mkdirs()
+                            removeExistingSymlink(target)
                             FileOutputStream(target).use { output -> tar.copyTo(output) }
                             runCatching { Os.chmod(target.absolutePath, entry.mode and 0b111111111) }
                         }
@@ -230,4 +263,3 @@ internal object RuntimeArchiveExtractor {
         }
     }
 }
-

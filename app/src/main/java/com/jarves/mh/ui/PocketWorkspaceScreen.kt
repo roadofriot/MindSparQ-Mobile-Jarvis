@@ -641,29 +641,21 @@ internal fun WorkspaceScreen(
                                 val shortModel = (if (state.agentKind == AgentKind.ANTIGRAVITY) state.antigravityModel else state.provider.model)
                                     .substringAfterLast('/')
                                     .take(16)
-                                Text(
-                                    "· $shortModel",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Spacer(Modifier.width(3.dp))
-                                Icon(
-                                    Icons.Default.Tune,
-                                    contentDescription = "AI Settings",
-                                    modifier = Modifier.size(11.dp),
-                                    tint = PocketOrange,
-                                )
+                                if (shortModel.isNotBlank()) {
+                                    Text(
+                                        shortModel,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                             }
                         }
                     }
                 },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.tab_projects)) } },
                 actions = {
-                    IconButton(onClick = onOpenLiveVoice) {
-                        Icon(Icons.Default.Mic, "Live Voice JARVIS", tint = PocketOrange)
-                    }
                     IconButton(onClick = onOpenAiHub) {
                         Icon(Icons.Default.Tune, "AI Hub", tint = PocketOrange)
                     }
@@ -672,49 +664,87 @@ internal fun WorkspaceScreen(
                             onClick = { showAndroidBuild = true },
                             enabled = !state.isRunning && !state.projectTerminalRunning,
                         ) {
-                            if (state.androidBuildRunning) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            if (state.androidBuildRunning) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                             else Icon(Icons.Default.PlayArrow, stringResource(R.string.ws_build_run_android))
                         }
                     }
                     IconButton(onClick = { showChats = true }) { Icon(Icons.Default.History, stringResource(R.string.ws_project_chats)) }
-                    if (state.isRunning) CircularProgressIndicator(Modifier.padding(12.dp).size(20.dp), strokeWidth = 2.dp)
+                    if (state.isRunning) CircularProgressIndicator(Modifier.padding(8.dp).size(18.dp), strokeWidth = 2.dp)
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
             )
         },
         bottomBar = {
-            if (!keyboardVisible) NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                WorkspaceTab.entries.forEach { tab ->
-                    NavigationBarItem(
-                        selected = selectedTab == tab,
-                        onClick = {
-                            selectedTab = tab
-                            if (tab == WorkspaceTab.FILES) onRefreshFiles()
-                            if (tab == WorkspaceTab.TERMINAL) onTerminalOpened()
-                        },
-                        icon = {
-                            if (tab == WorkspaceTab.CHANGES && state.changes.isNotEmpty()) {
-                                BadgedBox(badge = {
-                                    Badge(
-                                        containerColor = MaterialTheme.colorScheme.primary,
-                                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                                    ) {
-                                        Text("${state.changes.size}")
+            if (!keyboardVisible) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+                    tonalElevation = 2.dp,
+                    shadowElevation = 4.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceAround,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        WorkspaceTab.entries.forEach { tab ->
+                            val isSelected = selectedTab == tab
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent,
+                                modifier = Modifier
+                                    .clickable {
+                                        selectedTab = tab
+                                        if (tab == WorkspaceTab.FILES) onRefreshFiles()
+                                        if (tab == WorkspaceTab.TERMINAL) onTerminalOpened()
                                     }
-                                }) {
-                                    Icon(tab.icon, stringResource(tab.labelRes))
+                                    .padding(horizontal = 2.dp, vertical = 2.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center,
+                                ) {
+                                    if (tab == WorkspaceTab.CHANGES && state.changes.isNotEmpty()) {
+                                        BadgedBox(badge = {
+                                            Badge(
+                                                containerColor = MaterialTheme.colorScheme.primary,
+                                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                                            ) {
+                                                Text("${state.changes.size}", fontSize = 8.sp)
+                                            }
+                                        }) {
+                                            Icon(
+                                                tab.icon,
+                                                stringResource(tab.labelRes),
+                                                modifier = Modifier.size(17.dp),
+                                                tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    } else {
+                                        Icon(
+                                            tab.icon,
+                                            stringResource(tab.labelRes),
+                                            modifier = Modifier.size(17.dp),
+                                            tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        stringResource(tab.labelRes),
+                                        fontSize = 10.5.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                 }
-                            } else {
-                                Icon(tab.icon, stringResource(tab.labelRes))
                             }
-                        },
-                        label = { Text(stringResource(tab.labelRes), fontSize = 10.sp) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                        ),
-                    )
+                        }
+                    }
                 }
             }
         },

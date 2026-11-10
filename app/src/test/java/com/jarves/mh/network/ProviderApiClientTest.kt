@@ -53,4 +53,60 @@ class ProviderApiClientTest {
         assertEquals(8, chat.getInt("max_tokens"))
         assertEquals(8, anthropic.getInt("max_tokens"))
     }
+
+    @Test
+    fun autonomousGenerationBodiesCarryRolePromptsAndBoundedOutput() {
+        val client = ProviderApiClient()
+        val chat = JSONObject(
+            client.generationBody(
+                model = "review-model",
+                protocol = ProviderProtocol.OPENAI_CHAT,
+                systemPrompt = "Act as a reviewer",
+                userPrompt = "Review this diff",
+                maxTokens = 900,
+            ),
+        )
+        assertEquals(900, chat.getInt("max_tokens"))
+        assertEquals("Act as a reviewer", chat.getJSONArray("messages").getJSONObject(0).getString("content"))
+        assertEquals("Review this diff", chat.getJSONArray("messages").getJSONObject(1).getString("content"))
+
+        val responses = JSONObject(
+            client.generationBody(
+                model = "planner-model",
+                protocol = ProviderProtocol.OPENAI_RESPONSES,
+                systemPrompt = "Act as a planner",
+                userPrompt = "Plan this task",
+                maxTokens = 700,
+            ),
+        )
+        assertEquals("Act as a planner", responses.getString("instructions"))
+        assertEquals("Plan this task", responses.getString("input"))
+        assertEquals(700, responses.getInt("max_output_tokens"))
+    }
+
+    @Test
+    fun generatedTextParserSupportsAnthropicChatAndResponsesFormats() {
+        val client = ProviderApiClient()
+        assertEquals(
+            "review notes",
+            client.parseGeneratedText(
+                """{"content":[{"type":"text","text":"review notes"}]}""",
+                ProviderProtocol.ANTHROPIC,
+            ),
+        )
+        assertEquals(
+            "review notes",
+            client.parseGeneratedText(
+                """{"choices":[{"message":{"content":"review notes"}}]}""",
+                ProviderProtocol.OPENAI_CHAT,
+            ),
+        )
+        assertEquals(
+            "review notes",
+            client.parseGeneratedText(
+                """{"output":[{"content":[{"type":"output_text","text":"review notes"}]}]}""",
+                ProviderProtocol.OPENAI_RESPONSES,
+            ),
+        )
+    }
 }

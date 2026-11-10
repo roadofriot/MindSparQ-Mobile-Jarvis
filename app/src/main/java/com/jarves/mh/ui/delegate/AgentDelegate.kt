@@ -693,6 +693,11 @@ class AgentDelegate(vm: MainViewModel) : BaseViewModelDelegate(vm) {
         }
     }
 
+    fun setAutonomousWorkflowEnabled(enabled: Boolean) {
+        preferences.autonomousWorkflowEnabled = enabled
+        _state.update { it.copy(autonomousWorkflowEnabled = enabled) }
+    }
+
     /** Installs the other agent on demand (Settings) with live progress, then switches to it. */
     fun installAgent(kind: AgentKind) {
         if (_state.value.agentInstalling != null) return
